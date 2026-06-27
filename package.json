@@ -13,7 +13,7 @@
     "build:config": "node scripts/build-config.js",
     "gen-icon": "node scripts/gen-icon.js",
     "dist": "npm run build:config && npm run gen-icon && electron-builder",
-    "release": "npm run build:config && npm run gen-icon && electron-builder --publish always",
+    "release": "node scripts/release.js",
     "dev": "node --watch src/index.js"
   },
   "engines": {
