@@ -63,7 +63,8 @@
     "publish": {
       "provider": "github",
       "owner": "Shonagon-Sei",
-      "repo": "osu-pacemaker"
+      "repo": "osu-pacemaker",
+      "releaseType": "release"
     }
   },
   "license": "MIT"
