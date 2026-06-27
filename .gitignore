@@ -3,6 +3,14 @@ node_modules/
 .env
 *.log
 
+# Build output + baked config (may contain deploy URLs/keys)
+dist/
+config/runtime.json
+
+# Generated icons (recreated by `npm run gen-icon`)
+build/icon.png
+build/tray.png
+
 # Editor / tooling
 .claude/
 .vscode/

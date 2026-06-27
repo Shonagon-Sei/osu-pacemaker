@@ -54,12 +54,22 @@ const MAX_LIMIT = 100;
  * board.) `classic_total_score` is also captured for the optional Classic view.
  */
 async function fetchLeaderboard(cfg, beatmapId, mode, limit) {
-  const t = await getToken(cfg);
   const n = Math.max(1, Math.min(MAX_LIMIT, limit || 50));
-  const url = `https://osu.ppy.sh/api/v2/beatmaps/${beatmapId}/scores?mode=${modeStr(mode)}&limit=${n}`;
-  const r = await fetch(url, {
-    headers: { Authorization: `Bearer ${t}`, Accept: 'application/json', 'x-api-version': '20240529' },
-  });
+  let r;
+  if (cfg.proxyUrl) {
+    // Proxy holds the secret server-side; the app only knows the public URL.
+    const base = cfg.proxyUrl.replace(/\/+$/, '');
+    r = await fetch(`${base}/leaderboard?beatmap=${beatmapId}&mode=${modeStr(mode)}&limit=${n}`, {
+      headers: { Accept: 'application/json' },
+    });
+  } else {
+    // Direct (dev / your-own-key): needs client_credentials in config.
+    const t = await getToken(cfg);
+    r = await fetch(
+      `https://osu.ppy.sh/api/v2/beatmaps/${beatmapId}/scores?mode=${modeStr(mode)}&limit=${n}`,
+      { headers: { Authorization: `Bearer ${t}`, Accept: 'application/json', 'x-api-version': '20240529' } }
+    );
+  }
   if (!r.ok) throw new Error(`leaderboard request failed (${r.status})`);
   const j = await r.json();
   const scores = j.scores || [];

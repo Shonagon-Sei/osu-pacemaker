@@ -1,0 +1,7 @@
+name = "osu-pacemaker-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+# Secrets are NOT stored here. Set them once after deploy:
+#   wrangler secret put OSU_CLIENT_ID
+#   wrangler secret put OSU_CLIENT_SECRET

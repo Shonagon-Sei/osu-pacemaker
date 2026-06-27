@@ -16,6 +16,20 @@ osu! (stable)  ──►  tosu  ──ws──►  Node backend  ──ws──�
 Uses [**tosu**](https://tosu.app/) (the maintained successor to gosumemory) via
 its modern **v2 API** (`/websocket/v2`).
 
+## Download & run (no Node/npm needed)
+
+1. Install and launch **[tosu](https://tosu.app/)** (it runs a local server on port 24050).
+2. Grab the latest **`osu-pacemaker-Setup-x.y.z.exe`** (installer) or
+   **`osu-pacemaker-x.y.z-portable.exe`** from the
+   [**Releases**](https://github.com/Shonagon-Sei/osu-pacemaker/releases) page and run it.
+3. Run **osu! in Borderless** (Options ▸ Graphics ▸ uncheck *Fullscreen*).
+4. The overlay floats over the game. Press **Ctrl+Shift+L** to unlock it (drag,
+   resize, ⚙ settings), again to lock. The **tray icon** has lock/quit/updates.
+
+The app bundles everything (Node + the overlay) and **auto-updates** from GitHub
+Releases. Global top-scores work out of the box via a hosted proxy — no API key
+needed. (Everything below is for developers building from source.)
+
 ## How it works
 
 1. **Index** — On startup (and on each map change if `WATCH_REPLAYS=true`) it
@@ -199,6 +213,34 @@ to test the overlay on. If it reports 0 replays, your `OSU_ROOT` is wrong.
 | `SIM_WORKERS` | `0` (auto) | Simulation worker threads (`0` = cpus−1) |
 | `MAX_GHOSTS` | `7` | Show top N ghosts by final score (`0` = all) |
 | `WATCH_REPLAYS` | `true` | Re-scan index on each map change |
+| `OSU_PROXY_URL` | — | Leaderboard proxy URL (recommended for global; see `proxy/`) |
+
+## Building the executable & releasing
+
+The packaged app is built with [electron-builder](https://www.electron.build/)
+and auto-updates via [electron-updater](https://www.electron.build/auto-update)
+from GitHub Releases.
+
+```bash
+npm install
+# Recommended: deploy the leaderboard proxy first (see proxy/README.md) and set
+#   OSU_PROXY_URL=https://...workers.dev   in .env
+npm run dist        # build:config (bakes OSU_PROXY_URL) + icons + installer/portable
+```
+
+Output lands in `dist/`:
+- `osu-pacemaker-Setup-x.y.z.exe` — NSIS installer (this is the **auto-updating** one).
+- `osu-pacemaker-x.y.z-portable.exe` — single-file, no install (won't auto-update).
+
+To cut a release that the app will auto-update to:
+```bash
+npm version patch          # bump version + tag
+git push --follow-tags
+GH_TOKEN=<token> npm run release   # builds + uploads artifacts + latest.yml to the GitHub Release
+```
+The secret never ships in the build — only the public proxy URL is baked in.
+(If you ever choose to embed a key directly instead, set `OSU_API_CLIENT_ID/SECRET`
+in `.env` with **no** `OSU_PROXY_URL`; `build:config` will warn that it's extractable.)
 
 ## Project layout
 

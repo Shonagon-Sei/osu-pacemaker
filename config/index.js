@@ -6,6 +6,11 @@ const fs = require('fs');
 
 require('dotenv').config();
 
+// Build-time values baked into a packaged app (proxy URL etc.), written by
+// scripts/build-config.js. Absent in dev (we use .env there). Never committed.
+let runtime = {};
+try { runtime = require('./runtime.json'); } catch { /* dev: no baked config */ }
+
 function bool(v, dflt) {
   if (v === undefined) return dflt;
   return /^(1|true|yes|on)$/i.test(String(v).trim());
@@ -62,10 +67,12 @@ const config = {
   maxGhosts: int(process.env.MAX_GHOSTS, 7),
   watchReplays: bool(process.env.WATCH_REPLAYS, true),
 
-  // osu! API v2 (client_credentials) — enables the global top-50 ghosts feature.
+  // Global ghosts: preferred path is a proxy URL (holds the secret server-side).
+  // Direct client_credentials are a dev/own-key fallback.
+  proxyUrl: (process.env.OSU_PROXY_URL || runtime.proxyUrl || '').trim(),
   osuApi: {
-    clientId: (process.env.OSU_API_CLIENT_ID || '').trim(),
-    clientSecret: (process.env.OSU_API_CLIENT_SECRET || '').trim(),
+    clientId: (process.env.OSU_API_CLIENT_ID || runtime.clientId || '').trim(),
+    clientSecret: (process.env.OSU_API_CLIENT_SECRET || runtime.clientSecret || '').trim(),
   },
   globalCount: int(process.env.OSU_GLOBAL_COUNT, 50),
 
@@ -73,7 +80,7 @@ const config = {
 };
 
 config.indexCacheFile = path.join(config.cacheDir, 'replay-index.json');
-config.apiEnabled = !!(config.osuApi.clientId && config.osuApi.clientSecret);
+config.apiEnabled = !!(config.proxyUrl || (config.osuApi.clientId && config.osuApi.clientSecret));
 
 // Human-readable summary of what we'll index, e.g. "lazer (C:\…\osu)".
 config.sourceSummary = sources.length

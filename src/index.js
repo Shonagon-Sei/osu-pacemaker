@@ -24,7 +24,7 @@ const { modString } = require('./osu/mods');
  *    map, reusing the cached local simulation.
  *  - Generation-guarded so map switches abandon stale in-flight work.
  */
-async function main() {
+async function start() {
   log.info('osu! Local Leaderboard starting...');
   log.info('Indexing source(s):', config.sourceSummary);
   log.info('osu! API (global ghosts):', config.apiEnabled ? 'enabled' : 'not configured');
@@ -184,9 +184,23 @@ async function main() {
   tosu.on('live', (live) => relay.sendLive(live));
   tosu.connect();
 
-  const shutdown = async () => { log.info('Shutting down...'); tosu.close(); await pool.destroy(); process.exit(0); };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  // Handle to tear everything down (used by the Electron app on quit).
+  return {
+    httpPort: config.httpPort,
+    relayPort: config.relayPort,
+    async stop() { log.info('Stopping backend...'); tosu.close(); await pool.destroy(); },
+  };
 }
 
-main().catch((e) => { log.err('Fatal:', e.stack || e.message); process.exit(1); });
+module.exports = { start };
+
+// CLI / dev: `node src/index.js`
+if (require.main === module) {
+  start()
+    .then((h) => {
+      const shutdown = async () => { await h.stop(); process.exit(0); };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+    })
+    .catch((e) => { log.err('Fatal:', e.stack || e.message); process.exit(1); });
+}

@@ -1,13 +1,19 @@
 {
-  "name": "osu-mania-local-leaderboard",
+  "name": "osu-pacemaker",
   "version": "1.0.0",
-  "description": "Live-scrolling local leaderboard overlay for osu!mania. Indexes saved .osr replays for the active beatmap, pre-simulates their ScoreV2 progression, and races them against your live play via Gosumemory.",
+  "description": "Live-scrolling local + global leaderboard overlay for osu!. Races saved .osr replays (and the global top scores) against your live play via tosu.",
   "type": "commonjs",
-  "main": "src/index.js",
+  "author": "Kumokoni",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/index.js",
+    "app": "electron electron/main.js",
     "index": "node src/tools/reindex.js",
     "overlay": "electron electron/overlay-main.js",
+    "build:config": "node scripts/build-config.js",
+    "gen-icon": "node scripts/gen-icon.js",
+    "dist": "npm run build:config && npm run gen-icon && electron-builder",
+    "release": "npm run build:config && npm run gen-icon && electron-builder --publish always",
     "dev": "node --watch src/index.js"
   },
   "engines": {
@@ -15,11 +21,50 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "electron-updater": "^6.3.9",
     "lzma": "^2.3.2",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "dev.shonagon.osupacemaker",
+    "productName": "osu! Pacemaker",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "config/**/*",
+      "electron/**/*",
+      "build/tray.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "osu-pacemaker-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "osu-pacemaker-${version}-portable.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Shonagon-Sei",
+      "repo": "osu-pacemaker"
+    }
   },
   "license": "MIT"
 }
