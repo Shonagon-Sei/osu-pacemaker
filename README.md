@@ -7,12 +7,6 @@ against your live play in a transparent OBS-ready overlay on the **ScoreV2**
 (standardised) scale. When your live score passes a ghost at the current
 timestamp, your bar slides up past theirs.
 
-**Modes:** mania is frame-simulated for accurate mid-race curves. osu!std, taiko
-and catch use each replay's exact stored standardised score with an approximated
-race curve (full cursor/slider judging is a non-goal) — so std standings are
-exact, the curve is an estimate. Mod **score multipliers** are accounted for
-because exact finals (replay header / API / tosu) already include them.
-
 ```
 osu! (stable)  ──►  tosu  ──ws──►  Node backend  ──ws──►  Browser overlay
                     (active map,   (index + simulate         (rAF interpolation
