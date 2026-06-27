@@ -375,7 +375,9 @@
 
       bar.refs.rank.textContent = rank;
       bar.refs.name.textContent = (e.global ? '🌐 ' : '') + e.name;
-      bar.refs.mods.textContent = e.mods && normMods(e.mods) ? e.mods : '';
+      // Show the real mods (incl. a lone CL); only hide "no mod". normMods (which
+      // drops CL) is for the same-mods *filter*, not the display.
+      bar.refs.mods.textContent = (e.mods && e.mods.toUpperCase() !== 'NM') ? e.mods : '';
       bar.refs.score.textContent = METRIC[sortBy].fmt(e);
       bar.refs.s1.textContent = subKeys[0] ? METRIC[subKeys[0]].fmt(e) : '';
       bar.refs.s2.textContent = subKeys[1] ? METRIC[subKeys[1]].fmt(e) : '';
