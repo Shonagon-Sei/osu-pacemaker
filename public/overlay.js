@@ -243,9 +243,15 @@
 
   // ── Debounced ordering by the chosen metric ───────────────────────────────────
   // A bar must beat the one above it by `margin` to rise, and can't re-move within
-  // `swapCooldown` (the debounce). Crucially a single move relocates a bar PAST AS
-  // MANY bars as it now beats — so passing 4 people happens in one jump, not 4
-  // separate cooldowns.
+  // `swapCooldown` (the debounce). A single move relocates a bar PAST AS MANY bars
+  // as it now beats — so passing 4 people happens in one jump, not 4 cooldowns.
+  // The cooldown only exists to damp thrashing while scores actively cross; if
+  // NOTHING has changed for a moment (a break / static section), we skip it and
+  // let the board settle to the true order immediately.
+  const STATIC_MS = 200;       // no value changed for this long -> not thrashing
+  const lastVals = new Map();
+  let lastChangeAt = 0;
+
   function applyOrder(entries) {
     const cooldown = settings.swapCooldown;
     const m = METRIC[settings.sortBy] || METRIC.score;
@@ -258,13 +264,24 @@
     const now = performance.now();
     const val = (id) => m.val(byId.get(id));
 
+    // Did any sort value change since last frame? (A roster change counts too.)
+    let changed = fresh.length > 0 || lastVals.size !== byId.size;
+    for (const [id, e] of byId) {
+      const v = m.val(e);
+      if (Math.abs((lastVals.get(id) ?? NaN) - v) > 1e-6) changed = true;
+      lastVals.set(id, v);
+    }
+    for (const id of lastVals.keys()) if (!byId.has(id)) lastVals.delete(id);
+    if (changed) lastChangeAt = now;
+    const isStatic = now - lastChangeAt > STATIC_MS; // scores settled -> no thrash risk
+
     let moved = true;
     let guard = 0;
     while (moved && guard++ < state.order.length + 1) {
       moved = false;
       for (let i = 1; i < state.order.length; i++) {
         const id = state.order[i];
-        if (now - (state.lastSwap.get(id) || 0) <= cooldown) continue; // still debounced
+        if (!isStatic && now - (state.lastSwap.get(id) || 0) <= cooldown) continue; // debounced (only while scores move)
         // How far up should it go? Past every consecutive bar above it that it
         // now beats by the margin.
         let j = i;
