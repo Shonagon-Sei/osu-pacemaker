@@ -44,35 +44,6 @@ its modern **v2 API** (`/websocket/v2`).
    live stats stream every tosu tick. The browser interpolates ghost scores at
    the live playhead with `requestAnimationFrame` and re-sorts bars each frame.
 
-## Scoring model (read this)
-
-This reproduces lazer's **ScoreV2** mania model (capped at 1,000,000):
-
-```
-score = 150000 · comboProgress
-      + 850000 · acc^(2 + 2·acc) · progress
-
-progress      = judged / totalHits          (map completion; a Meh still counts)
-acc           = base / (judged · 305)       (quality — Perfect=305, Great=300, …)
-comboProgress = Σ combo^COMBO_BASE / max     (combo weighting)
-```
-
-Key points:
-- **lazer ghosts use the EXACT stored score.** A lazer `.osr` header carries the
-  real standardised total, accuracy counts, and max combo, so we read those
-  verbatim — ghost final standings match the in-game results screen exactly. The
-  simulation is used only for the *shape* of the race curve (lazer stores no
-  time-series), scaled to end on the exact number.
-- **Your live bar uses tosu's reported score/accuracy/combo directly** — also the
-  exact lazer value — so you and the ghosts are on one scale.
-- The simulated curve (and the score for **stable** replays, which store a legacy
-  ScoreV1 total) uses the formula above: coefficients, OD-scaled windows, accuracy
-  weighting and 1.5× long-note tail leniency from the lazer source, with the combo
-  exponent (`COMBO_BASE = 0.2`) calibrated against real scores. Validated to ~0.2%
-  before the exact-header override, so even the mid-race curve is faithful.
-
-All constants live in [`src/osu/scoreV2.js`](src/osu/scoreV2.js).
-
 ## Setup
 
 Requires **Node ≥ 18**, **osu!** (stable or lazer), and a running
