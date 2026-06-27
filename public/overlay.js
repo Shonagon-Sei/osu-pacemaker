@@ -220,12 +220,10 @@
 
     for (const g of visibleGhosts()) {
       let score, acc, combo, ratio;
-      // Ratio uses the EXACT final counts, not the per-sample simulated value:
-      // our approximate judging mis-splits Perfect/Great mid-race, which would
-      // wrongly sink an all-Perfect ghost. Ratio is ~constant over a play anyway.
-      ratio = ratioOf(g.counts);
-      if (idle) { score = g.finalScore; acc = g.finalAcc; combo = g.maxCombo; }
-      else { const s = ghostAt(g, t); score = s.score; acc = s.acc; combo = showMax ? g.maxCombo : s.combo; }
+      // Per-sample ratio is rescaled to the exact final (see simWorker), so it
+      // progresses over the play yet ends correct. Idle/finished use the final.
+      if (idle) { score = g.finalScore; acc = g.finalAcc; combo = g.maxCombo; ratio = ratioOf(g.counts); }
+      else { const s = ghostAt(g, t); score = s.score; acc = s.acc; combo = showMax ? g.maxCombo : s.combo; ratio = s.ratio != null ? s.ratio : ratioOf(g.counts); }
       entries.push({ id: g.replayId, name: g.player, mods: g.mods, score, acc, combo, ratio, isYou: false, global: g.global });
     }
 

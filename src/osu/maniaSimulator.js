@@ -174,8 +174,11 @@ function simulate(frames, beatmap, mods, stepMs) {
       score: computeScore({ baseScore, comboPortion, judged, totalHits, maxCombo }),
       acc: judged > 0 ? +displayAccuracy(counts).toFixed(2) : 100,
       combo,
-      // Running Perfect:Great ratio (mania precision) for "rank by ratio".
-      ratio: counts.n300 > 0 ? +(counts.max / counts.n300).toFixed(2) : counts.max,
+      // Running Perfect/Great counts. The worker rescales these to the EXACT final
+      // counts (our judging mis-splits them) and derives the per-sample ratio, so
+      // ratio progresses over the play yet lands on the real final value.
+      pf: counts.max,
+      gr: counts.n300,
     });
   }
 

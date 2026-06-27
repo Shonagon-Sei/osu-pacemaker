@@ -22,7 +22,7 @@ function buildHeaderGhost(osrPath, beatmap, mode, stepMs) {
 
   const acc = +accuracyFor(mode, h.counts).toFixed(2);
   const objectTimes = beatmap.objects.map((o) => o.time);
-  const sim = buildApproxTimeline(objectTimes, { score: h.stableScore, acc, maxCombo: h.maxCombo }, stepMs);
+  const sim = buildApproxTimeline(objectTimes, { score: h.stableScore, acc, maxCombo: h.maxCombo, counts: h.counts }, stepMs);
 
   return {
     replayId: h.replayMD5 || osrPath,

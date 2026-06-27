@@ -34,28 +34,40 @@ parentPort.on('message', async (job) => {
     let finalAcc = sim.finalAcc;
     let maxCombo = sim.maxCombo;
     let counts = sim.counts;
-    let timeline = sim.timeline;
+    let scoreScale = 1;
 
     if (isLazer && replay.stableScore > 0) {
       finalScore = replay.stableScore; // already includes the mod multiplier
       counts = replay.counts;
       finalAcc = +displayAccuracy(replay.counts).toFixed(2);
       maxCombo = replay.maxCombo;
-
-      if (sim.finalScore > 0 && timeline.length) {
-        const k = finalScore / sim.finalScore;
-        timeline = timeline.map((p) => ({ ...p, score: Math.round(p.score * k) }));
-        timeline[timeline.length - 1].score = finalScore; // exact at the end
-      }
+      scoreScale = sim.finalScore > 0 ? finalScore / sim.finalScore : 1;
     } else {
       // Stable replay: our simulated ScoreV2 has no mod multiplier — apply it so
       // modded stable plays sit on the same standardised scale as the rest.
-      const mult = modMultiplier(replay.mods, beatmap.mode);
-      if (mult !== 1) {
-        finalScore = Math.round(finalScore * mult);
-        timeline = timeline.map((p) => ({ ...p, score: Math.round(p.score * mult) }));
-      }
+      scoreScale = modMultiplier(replay.mods, beatmap.mode);
+      finalScore = Math.round(finalScore * scoreScale);
     }
+
+    // Rescale the running Perfect/Great counts to the EXACT final, then derive the
+    // per-sample ratio: it progresses over the play but lands on the real value,
+    // and an all-Perfect run (0 Greats) scales to 0 Greats so it ranks top.
+    const tl = sim.timeline;
+    const lastPf = tl.length ? tl[tl.length - 1].pf : 0;
+    const lastGr = tl.length ? tl[tl.length - 1].gr : 0;
+    const sP = lastPf > 0 ? counts.max / lastPf : 0;
+    const sG = lastGr > 0 ? counts.n300 / lastGr : 0;
+    const timeline = tl.map((p) => {
+      const perf = p.pf * sP, grt = p.gr * sG;
+      return {
+        t: p.t,
+        score: Math.round(p.score * scoreScale),
+        acc: p.acc,
+        combo: p.combo,
+        ratio: grt > 0 ? +(perf / grt).toFixed(2) : Math.round(perf),
+      };
+    });
+    if (timeline.length) timeline[timeline.length - 1].score = finalScore; // exact at the end
 
     parentPort.postMessage({
       id,

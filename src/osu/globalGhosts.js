@@ -19,7 +19,7 @@ async function fetchGlobalGhosts(config, beatmapId, mode, beatmap, stepMs, count
   return board.map((e) => {
     const score = e.score; // standardised; classic display is applied downstream
     const acc = +(e.accuracy * 100).toFixed(2); // exact, mode-agnostic
-    const sim = buildApproxTimeline(objectTimes, { score, acc, maxCombo: e.maxCombo }, stepMs);
+    const sim = buildApproxTimeline(objectTimes, { score, acc, maxCombo: e.maxCombo, counts: e.counts }, stepMs);
     return {
       replayId: `g${e.scoreId}`,
       player: e.player,
