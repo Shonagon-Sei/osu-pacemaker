@@ -13,7 +13,7 @@
  * Ctrl+Shift+L locks/unlocks (click-through) · Ctrl+Shift+O quits.
  */
 const path = require('path');
-const { app, BrowserWindow, Tray, Menu, screen, globalShortcut, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, globalShortcut, nativeImage, dialog, ipcMain } = require('electron');
 
 // Keep us responsive while in the background (overlay must keep animating).
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -26,16 +26,41 @@ let win = null;
 let tray = null;
 let backend = null;
 let locked = true; // overlay starts click-through (locked)
+let displayBounds = null; // primary display bounds; origin for renderer-sent coords
 
 function setLocked(state) {
   locked = state;
   if (!win) return;
-  win.setIgnoreMouseEvents(locked, { forward: true });
+  // No { forward: true }: forwarding every mouse-move to the renderer across the
+  // whole screen floods the overlay (osu! runs high-polling raw input) and lags
+  // the cursor. The renderer drives the window size on lock/unlock (see below).
+  win.setIgnoreMouseEvents(locked);
   win.setFocusable(!locked);
   if (!locked) win.focus();
   win.webContents.executeJavaScript(`window.setOverlayUnlocked && window.setOverlayUnlocked(${!locked})`).catch(() => {});
   if (tray) tray.setContextMenu(buildMenu());
 }
+
+// ── Renderer-driven window bounds ──────────────────────────────────────────────
+// A full-screen transparent (layered) window makes Windows composite the cursor
+// in software → severe mouse lag while playing. So the page tells us the exact
+// rect to use: tight to the board while locked (rest of screen untouched → no
+// lag), full-screen while unlocked so the settings panel + drag-to-place work.
+// Coords are display-local; we offset by the display origin.
+ipcMain.on('overlay:bounds', (_e, b) => {
+  if (!win || win.isDestroyed() || !displayBounds || !b) return;
+  win.setBounds({
+    x: displayBounds.x + Math.round(b.x),
+    y: displayBounds.y + Math.round(b.y),
+    width: Math.max(1, Math.round(b.width)),
+    height: Math.max(1, Math.round(b.height)),
+  });
+});
+
+ipcMain.on('overlay:full', () => {
+  if (!win || win.isDestroyed() || !displayBounds) return;
+  win.setBounds({ ...displayBounds });
+});
 
 function buildMenu() {
   return Menu.buildFromTemplate([
@@ -52,17 +77,26 @@ function buildMenu() {
 }
 
 function createWindow(httpPort) {
-  const { x, y, width, height } = screen.getPrimaryDisplay().bounds;
+  displayBounds = screen.getPrimaryDisplay().bounds;
+  const { x, y } = displayBounds;
   win = new BrowserWindow({
-    x, y, width, height,
-    transparent: true, frame: false, resizable: false, movable: false,
+    // Start small, not full-screen: a full-screen transparent (layered) window
+    // forces software cursor composition on Windows and lags the mouse. The
+    // renderer drives the real bounds (tight while locked, full while unlocked).
+    // resizable must stay true or Windows ignores our programmatic setBounds.
+    x, y, width: 480, height: 320,
+    transparent: true, frame: false, resizable: true, movable: false,
     minimizable: false, maximizable: false, focusable: false, skipTaskbar: true,
     alwaysOnTop: true, hasShadow: false, fullscreenable: false, backgroundColor: '#00000000',
-    webPreferences: { contextIsolation: true, backgroundThrottling: false },
+    webPreferences: {
+      contextIsolation: true,
+      backgroundThrottling: false,
+      preload: path.join(__dirname, 'overlay-preload.js'),
+    },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.setIgnoreMouseEvents(true, { forward: true });
+  win.setIgnoreMouseEvents(true); // no forward (see setLocked)
   win.loadURL(`http://localhost:${httpPort}/`);
 
   setInterval(() => { if (win && !win.isDestroyed()) win.setAlwaysOnTop(true, 'screen-saver'); }, 2000);

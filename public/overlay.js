@@ -123,8 +123,43 @@
     r.setProperty('--ui-scale', settings.uiScale);
     const s = settings.shadow;
     r.setProperty('--shadow', s <= 0 ? 'none' : `0 0 ${s}px #000, 0 0 ${s * 2}px #000, 0 2px ${s + 3}px rgba(0,0,0,0.9)`);
-    overlayEl.style.left = `${settings.left}px`;
-    overlayEl.style.top = `${settings.top}px`;
+    positionOverlay();
+  }
+
+  // ── Electron window sizing ──────────────────────────────────────────────────
+  // In the Electron shell the overlay used to live in a full-screen transparent
+  // window. A full-screen layered window makes Windows composite the cursor in
+  // software → severe mouse lag while playing. So while LOCKED (playing) we
+  // shrink the OS window to just the board and place it at the user's chosen
+  // spot, leaving the rest of the screen untouched (hardware cursor, no lag).
+  // While UNLOCKED (editing) the window goes full-screen again so the settings
+  // panel and drag-to-place behave exactly as before. No-op outside Electron
+  // (e.g. an OBS browser source), where the page just fills its source.
+  const WPAD = 16; // transparent margin so bar glows/shadows aren't clipped
+  const overlayBounds = (typeof window !== 'undefined' && window.overlayBounds) || null;
+  let overlayLocked = false;
+  let lastSentBounds = '';
+
+  function positionOverlay() {
+    // Locked: board sits at (WPAD,WPAD) inside the tight window. Unlocked: at the
+    // user's coords inside the full-screen window.
+    const x = overlayLocked ? WPAD : settings.left;
+    const y = overlayLocked ? WPAD : settings.top;
+    overlayEl.style.left = `${x}px`;
+    overlayEl.style.top = `${y}px`;
+  }
+
+  function syncWindowBounds() {
+    if (!overlayBounds || !overlayLocked) return;
+    const r = overlayEl.getBoundingClientRect(); // post-scale, == on-screen px
+    const x = Math.round(settings.left - WPAD);
+    const y = Math.round(settings.top - WPAD);
+    const width = Math.ceil(r.width) + WPAD * 2;
+    const height = Math.ceil(r.height) + WPAD * 2;
+    const key = `${x},${y},${width},${height}`;
+    if (key === lastSentBounds) return; // only when it actually changes
+    lastSentBounds = key;
+    overlayBounds.set({ x, y, width, height });
   }
 
   const SLOT = () => settings.barHeight + settings.barGap;
@@ -397,6 +432,7 @@
   function frame() {
     overlayEl.classList.toggle('paused', state.playing && state.paused);
     render(windowEntries(applyOrder(collectEntries())));
+    syncWindowBounds(); // keep the locked OS window tight to the board
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -535,8 +571,14 @@
   // ── Lock / unlock (Electron) + drag + resize ──────────────────────────────────
   const isElectron = /electron/i.test(navigator.userAgent);
   function setUnlocked(on) {
+    overlayLocked = isElectron && !on;
     overlayEl.classList.toggle('unlocked', !!on);
     if (!on) configPanel.hidden = true;
+    positionOverlay();
+    if (overlayBounds) {
+      if (overlayLocked) { lastSentBounds = ''; syncWindowBounds(); } // shrink to board
+      else overlayBounds.full();                                      // expand for editing
+    }
   }
   setUnlocked(!isElectron);
   window.setOverlayUnlocked = setUnlocked;

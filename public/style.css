@@ -119,11 +119,13 @@ html, body {
 }
 #config-btn:hover { background: rgba(255, 255, 255, 0.25); }
 
-/* Board is a positioning context; bars are absolutely placed and translated. */
+/* Board is a positioning context; bars are absolutely placed and translated.
+   Height is set instantly (not transitioned): the Electron shell sizes its
+   window tight to the board each frame, and an animated height would briefly
+   clip a newly-added bottom row while it grew. Bars still slide via transform. */
 #board {
   position: relative;
   width: 100%;
-  transition: height 0.25s ease;
 }
 
 .bar {

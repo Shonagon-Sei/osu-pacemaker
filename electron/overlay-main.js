@@ -14,21 +14,31 @@
  * Run the backend first (`npm start`), then `npm run overlay`.
  * Hotkeys:  Ctrl+Shift+O quits the overlay,  Ctrl+Shift+L toggles click-through.
  */
-const { app, BrowserWindow, screen, globalShortcut } = require('electron');
+const path = require('path');
+const { app, BrowserWindow, screen, globalShortcut, ipcMain } = require('electron');
 const { config } = require('../config');
 
 let win = null;
 let clickThrough = true;
+let displayBounds = null; // primary display bounds; origin for renderer-sent coords
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
-  const { x, y, width, height } = display.bounds; // full bounds incl. taskbar area
+  displayBounds = display.bounds; // full bounds incl. taskbar area
+  const { x, y } = displayBounds;
 
+  // Start small, not full-screen: a full-screen transparent (layered) window
+  // forces Windows to composite the cursor in software, which lags the mouse
+  // while playing. The renderer drives the real bounds — tight to the board
+  // while locked, full-screen while unlocked (see the IPC handlers below).
   win = new BrowserWindow({
-    x, y, width, height,
+    x, y, width: 480, height: 320,
     transparent: true,
     frame: false,
-    resizable: false,
+    // Must stay resizable: with resizable:false Windows clamps the window to its
+    // initial size and ignores our programmatic setBounds (which we use to fit the
+    // board). It's frameless + click-through, so the user can't resize it by hand.
+    resizable: true,
     movable: false,
     minimizable: false,
     maximizable: false,
@@ -38,7 +48,11 @@ function createWindow() {
     hasShadow: false,
     fullscreenable: false,
     backgroundColor: '#00000000',
-    webPreferences: { contextIsolation: true, backgroundThrottling: false },
+    webPreferences: {
+      contextIsolation: true,
+      backgroundThrottling: false,
+      preload: path.join(__dirname, 'overlay-preload.js'),
+    },
   });
 
   // 'screen-saver' is the highest practical level; keeps us above borderless games.
@@ -54,6 +68,27 @@ function createWindow() {
 
   win.loadURL(`http://localhost:${config.httpPort}/`);
 }
+
+// ── Renderer-driven window bounds ──────────────────────────────────────────────
+// The page knows its own size/position (board content, the user's chosen spot),
+// so it tells us the exact OS-window rect to use. Coords are display-local; we
+// offset by the display origin. Tight bounds while locked keep the cursor on the
+// hardware plane (no lag); full-screen while unlocked lets the settings panel and
+// drag-to-place work across the whole screen.
+ipcMain.on('overlay:bounds', (_e, b) => {
+  if (!win || win.isDestroyed() || !displayBounds || !b) return;
+  win.setBounds({
+    x: displayBounds.x + Math.round(b.x),
+    y: displayBounds.y + Math.round(b.y),
+    width: Math.max(1, Math.round(b.width)),
+    height: Math.max(1, Math.round(b.height)),
+  });
+});
+
+ipcMain.on('overlay:full', () => {
+  if (!win || win.isDestroyed() || !displayBounds) return;
+  win.setBounds({ ...displayBounds });
+});
 
 app.whenReady().then(() => {
   // Reduce the chance the compositor pushes us behind the game.
