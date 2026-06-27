@@ -130,19 +130,19 @@ The overlay is **draggable and resizable** in any context:
 
 Race the **beatmap's global leaderboard**, not just your own replays. In the
 config screen turn on **"Include global top scores"** and set the count (**up to
-100** — the API's maximum). Requires osu! API credentials — create an OAuth app
-at [osu.ppy.sh/home/account/edit](https://osu.ppy.sh/home/account/edit) and put
-the client id/secret in `.env`:
+100** — the API's maximum).
 
-```
-OSU_API_CLIENT_ID=12345
-OSU_API_CLIENT_SECRET=your-secret
-```
+- **Using the released app:** nothing to set up — it talks to a hosted **proxy**
+  that holds the API secret, so no key is needed.
+- **Building from source:** deploy the bundled proxy (see [`proxy/`](proxy/)) and
+  set `OSU_PROXY_URL` in `.env`. The secret stays in the proxy and is never shipped.
+  (Dev fallback: set `OSU_API_CLIENT_ID/SECRET` to call the API directly — fine
+  locally, but don't ship a build with those baked in.)
 
-No user login is needed (client-credentials). The leaderboard gives each score's
-**exact** standardised score / accuracy / combo, so global standings are exact;
-their mid-race curve is approximated (one API call per map — no replay downloads).
-Global ghosts show a 🌐 and respect the **"only ghosts with my mods"** filter.
+The leaderboard gives each score's **exact** standardised score / accuracy /
+combo, so global standings are exact; their mid-race curve is approximated (one
+request per map — no replay downloads). Global ghosts show a 🌐 and respect the
+**"only ghosts with my mods"** filter.
 
 **Scoring (Standardised vs Classic):** the config screen has a **Scoring** toggle
 that mirrors lazer's own *Classic score display* setting:
