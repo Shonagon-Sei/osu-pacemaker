@@ -24,19 +24,15 @@ const { modString } = require('./osu/mods');
  *    map, reusing the cached local simulation.
  *  - Generation-guarded so map switches abandon stale in-flight work.
  */
-async function start() {
+async function start({ onServersUp } = {}) {
   log.info('osu! Local Leaderboard starting...');
   log.info('Indexing source(s):', config.sourceSummary);
   log.info('osu! API (global ghosts):', config.apiEnabled ? 'enabled' : 'not configured');
 
   for (const p of validate()) log.warn(p);
 
-  const index = new ReplayIndex(config);
-  await index.build();
-
-  const pool = new SimPool(config.simWorkers);
-  log.info(`Simulation pool: ${config.simWorkers} worker(s), step ${config.simStepMs}ms.`);
-
+  // Bring the servers up FIRST so the overlay can open and show "Initializing…"
+  // immediately — the replay scan below can take a few seconds on a cold start.
   const relay = new RelayServer(config.relayPort);
   relay.start();
 
@@ -47,6 +43,16 @@ async function start() {
     apiEnabled: config.apiEnabled,
     globalCount: config.globalCount,
   });
+
+  relay.sendStatus({ phase: 'init', note: 'Scanning replays…' });
+  if (onServersUp) { try { onServersUp(config.httpPort); } catch { /* ignore */ } }
+
+  const pool = new SimPool(config.simWorkers);
+  log.info(`Simulation pool: ${config.simWorkers} worker(s), step ${config.simStepMs}ms.`);
+
+  const index = new ReplayIndex(config);
+  await index.build();
+  relay.sendStatus({ phase: 'init', note: 'Waiting for a beatmap…' });
 
   const tosu = new TosuClient(config);
   let generation = 0;

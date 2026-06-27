@@ -100,13 +100,14 @@ function checkForUpdates() {
 
 app.whenReady().then(async () => {
   try {
-    backend = await require('../src/index').start();
+    // Open the overlay the moment the servers are up (shows "Initializing…")
+    // while the replay scan finishes in the background.
+    backend = await require('../src/index').start({ onServersUp: (httpPort) => createWindow(httpPort) });
   } catch (e) {
     dialog.showErrorBox('osu! Pacemaker failed to start', String(e && e.stack ? e.stack : e));
     app.quit();
     return;
   }
-  createWindow(backend.httpPort);
   createTray();
   initUpdates();
 
