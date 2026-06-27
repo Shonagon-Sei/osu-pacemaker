@@ -164,11 +164,15 @@
   const normMods = (m) => (m || '').toUpperCase().replace(/NM|CL/g, '').match(/../g)?.sort().join('') || '';
 
   // ── Per-metric helpers for sorting + display ──────────────────────────────────
+  // `margin` only damps tiny jitter / exact ties — it must stay well below real
+  // gaps. Top scores pack within a few hundred points, so the score margin has to
+  // be tiny or a clearly-higher score gets stuck below a lower one. Visual
+  // stability is handled by the cooldown (the "Sort debounce" setting), not this.
   const METRIC = {
-    score:    { val: (e) => e.score,  margin: 500,  fmt: (e) => fmt(e.display) },
-    accuracy: { val: (e) => e.acc,    margin: 0.03, fmt: (e) => `${e.acc.toFixed(2)}%` },
-    combo:    { val: (e) => e.combo,  margin: 1,    fmt: (e) => `${e.combo || 0}x` },
-    ratio:    { val: (e) => e.ratio,  margin: 0.05, fmt: (e) => `${(e.ratio || 0).toFixed(2)}:1` },
+    score:    { val: (e) => e.score,  margin: 1,    fmt: (e) => fmt(e.display) },
+    accuracy: { val: (e) => e.acc,    margin: 0.005, fmt: (e) => `${e.acc.toFixed(2)}%` },
+    combo:    { val: (e) => e.combo,  margin: 0.5,  fmt: (e) => `${e.combo || 0}x` },
+    ratio:    { val: (e) => e.ratio,  margin: 0.01, fmt: (e) => `${(e.ratio || 0).toFixed(2)}:1` },
   };
   function ratioOf(counts) { return counts ? (counts.n300 > 0 ? counts.max / counts.n300 : counts.max) : 0; }
 
