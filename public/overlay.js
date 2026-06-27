@@ -42,6 +42,7 @@
     aheadCount: 4,          // players shown directly above you
     behindCount: 1,         // players shown directly below you
     swapCooldown: 450,      // ms a bar must wait before swapping again (debounce)
+    scoreMargin: 1,         // pts one score must beat another by to swap rank
     showLeader: true,       // distinct colour for #1
     sameModsOnly: false,    // only ghosts whose mods match yours
     includeGlobal: false,   // pull the beatmap's global top-N as ghosts
@@ -71,6 +72,7 @@
     { key: 'aheadCount', label: 'Players above me', type: 'range', min: 0, max: 15, step: 1 },
     { key: 'behindCount', label: 'Players below me', type: 'range', min: 0, max: 5, step: 1 },
     { key: 'swapCooldown', label: 'Sort debounce (ms)', type: 'range', min: 0, max: 2000, step: 50 },
+    { key: 'scoreMargin', label: 'Score swap margin', type: 'range', min: 0, max: 1000, step: 1, unit: 'pts' },
     { key: 'showLeader', label: 'Highlight #1 pace', type: 'bool' },
     { key: 'sameModsOnly', label: 'Only ghosts with my mods', type: 'bool' },
     { key: 'includeGlobal', label: 'Include global top scores', type: 'bool' },
@@ -255,6 +257,9 @@
   function applyOrder(entries) {
     const cooldown = settings.swapCooldown;
     const m = METRIC[settings.sortBy] || METRIC.score;
+    // The score metric's swap margin is user-configurable; others use their fixed
+    // jitter-damping margin (see METRIC).
+    const margin = settings.sortBy === 'score' ? settings.scoreMargin : m.margin;
     const byId = new Map(entries.map((e) => [e.id, e]));
     state.order = state.order.filter((id) => byId.has(id));
     const known = new Set(state.order);
@@ -285,7 +290,7 @@
         // How far up should it go? Past every consecutive bar above it that it
         // now beats by the margin.
         let j = i;
-        while (j > 0 && val(id) > val(state.order[j - 1]) + m.margin) j--;
+        while (j > 0 && val(id) > val(state.order[j - 1]) + margin) j--;
         if (j < i) {
           state.order.splice(i, 1);
           state.order.splice(j, 0, id);

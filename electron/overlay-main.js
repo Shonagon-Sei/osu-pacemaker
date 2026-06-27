@@ -44,7 +44,13 @@ function createWindow() {
   // 'screen-saver' is the highest practical level; keeps us above borderless games.
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.setIgnoreMouseEvents(true, { forward: true }); // clicks pass through to osu!
+  // Click-through so input passes to osu!. Do NOT use { forward: true }: it makes
+  // Electron forward every mouse-move to the renderer across the whole screen,
+  // which with osu!'s high-polling raw input floods the overlay and causes severe
+  // cursor lag. The renderer doesn't use forwarded moves — lock/unlock is driven
+  // by the Ctrl+Shift+L hotkey, and drag/resize only run while unlocked (where
+  // click-through is off and the window gets real events directly).
+  win.setIgnoreMouseEvents(true);
 
   win.loadURL(`http://localhost:${config.httpPort}/`);
 }
@@ -58,7 +64,7 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Shift+L', () => {
     if (!win) return;
     clickThrough = !clickThrough;
-    win.setIgnoreMouseEvents(clickThrough, { forward: true });
+    win.setIgnoreMouseEvents(clickThrough); // no forward (see createWindow)
     win.setFocusable(!clickThrough); // need focus to receive drag clicks while unlocked
     if (!clickThrough) win.focus();
     // Mirror the lock state into the page so drag/resize handles show/hide.
