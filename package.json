@@ -1,0 +1,25 @@
+{
+  "name": "osu-mania-local-leaderboard",
+  "version": "1.0.0",
+  "description": "Live-scrolling local leaderboard overlay for osu!mania. Indexes saved .osr replays for the active beatmap, pre-simulates their ScoreV2 progression, and races them against your live play via Gosumemory.",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "index": "node src/tools/reindex.js",
+    "overlay": "electron electron/overlay-main.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "lzma": "^2.3.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "license": "MIT"
+}
