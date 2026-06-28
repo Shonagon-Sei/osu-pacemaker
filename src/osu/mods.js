@@ -56,17 +56,52 @@ function modMultiplier(mods, mode) {
   return m;
 }
 
+// Full legacy (stable) mod bitmask -> acronyms. Lazer-only mods (DC, etc.) don't
+// have legacy bits — those come from the replay's solo block / the API instead.
+// Precedence: NC implies DT, PF implies SD (show only the superset).
+const MOD_BIT = {
+  NF: 1, EZ: 2, TD: 4, HD: 8, HR: 16, SD: 32, DT: 64, RX: 128, HT: 256, NC: 512,
+  FL: 1024, AT: 2048, SO: 4096, AP: 8192, PF: 16384,
+  K4: 32768, K5: 65536, K6: 131072, K7: 262144, K8: 524288,
+  FI: 1048576, RD: 2097152, CN: 4194304, TP: 8388608,
+  K9: 16777216, COOP: 33554432, K1: 67108864, K3: 134217728, K2: 268435456,
+  V2: 536870912, MR: 1073741824,
+};
 function modString(mods) {
-  const names = [];
-  if (mods & MODS.Easy) names.push('EZ');
-  if (mods & MODS.NoFail) names.push('NF');
-  if (mods & MODS.HardRock) names.push('HR');
-  if (mods & MODS.Nightcore) names.push('NC');
-  else if (mods & MODS.DoubleTime) names.push('DT');
-  if (mods & MODS.HalfTime) names.push('HT');
-  if (mods & MODS.Hidden) names.push('HD');
-  if (mods & MODS.FadeIn) names.push('FI');
-  return names.length ? names.join('') : 'NM';
+  const m = (mods || 0) >>> 0;
+  const has = (bit) => (m & bit) !== 0;
+  const out = [];
+  if (has(MOD_BIT.EZ)) out.push('EZ');
+  if (has(MOD_BIT.NF)) out.push('NF');
+  if (has(MOD_BIT.HT)) out.push('HT');
+  if (has(MOD_BIT.HR)) out.push('HR');
+  if (has(MOD_BIT.PF)) out.push('PF'); else if (has(MOD_BIT.SD)) out.push('SD');
+  if (has(MOD_BIT.NC)) out.push('NC'); else if (has(MOD_BIT.DT)) out.push('DT');
+  if (has(MOD_BIT.HD)) out.push('HD');
+  if (has(MOD_BIT.FL)) out.push('FL');
+  if (has(MOD_BIT.RX)) out.push('RX');
+  if (has(MOD_BIT.AP)) out.push('AP');
+  if (has(MOD_BIT.SO)) out.push('SO');
+  if (has(MOD_BIT.TD)) out.push('TD');
+  if (has(MOD_BIT.AT)) out.push('AT');
+  if (has(MOD_BIT.CN)) out.push('CN');
+  if (has(MOD_BIT.FI)) out.push('FI');
+  if (has(MOD_BIT.MR)) out.push('MR');
+  if (has(MOD_BIT.RD)) out.push('RD');
+  if (has(MOD_BIT.TP)) out.push('TP');
+  // mania key mods
+  if (has(MOD_BIT.K1)) out.push('1K');
+  if (has(MOD_BIT.K2)) out.push('2K');
+  if (has(MOD_BIT.K3)) out.push('3K');
+  if (has(MOD_BIT.K4)) out.push('4K');
+  if (has(MOD_BIT.K5)) out.push('5K');
+  if (has(MOD_BIT.K6)) out.push('6K');
+  if (has(MOD_BIT.K7)) out.push('7K');
+  if (has(MOD_BIT.K8)) out.push('8K');
+  if (has(MOD_BIT.K9)) out.push('9K');
+  if (has(MOD_BIT.COOP)) out.push('CO');
+  // V2 (ScoreV2) is intentionally not shown as a gameplay mod.
+  return out.length ? out.join('') : 'NM';
 }
 
 module.exports = { MODS, rateFromMods, effectiveOD, modMultiplier, modString };

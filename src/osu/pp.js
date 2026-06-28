@@ -69,7 +69,8 @@ function createPpCalc(map, mode) {
       try {
         const mods = play.mods != null ? play.mods : 0;
         const lazer = play.lazer !== false; // default to lazer scoring
-        const key = `${mods}|${lazer}`;
+        // mods can be a number, string, or lazer APIMod array — key on its content.
+        const key = `${typeof mods === 'object' ? JSON.stringify(mods) : mods}|${lazer}`;
         let attrs = diffCache.get(key);
         if (!attrs) {
           attrs = new r.Difficulty({ mods, lazer }).calculate(map);
@@ -175,7 +176,7 @@ function hitCountArgs(mode, c) {
  */
 function attachPp(ghosts, calc, objectTimes) {
   for (const g of ghosts) {
-    const play = { mods: g.mods, counts: g.counts, combo: g.maxCombo, lazer: g.lazer, accuracy: g.finalAcc, sliderEndHits: g.sliderEndHits, largeTickHits: g.largeTickHits };
+    const play = { mods: g.modsExact || g.mods, counts: g.counts, combo: g.maxCombo, lazer: g.lazer, accuracy: g.finalAcc, sliderEndHits: g.sliderEndHits, largeTickHits: g.largeTickHits };
     g.finalPp = calc.pp(play);
     // Align the in-race accuracy curve so it lands on the (osu-accurate) final.
     const at = g.timeline;

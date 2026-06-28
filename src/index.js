@@ -57,21 +57,34 @@ function exactAccuracy(stats, max) {
   return den > 0 ? +(num / den * 100).toFixed(2) : null;
 }
 
-// For lazer replays, read the exact statistics embedded in the .osr and correct
-// each ghost's accuracy + slider-hit counts (used for exact std pp). Stable
-// replays and modes without slider mechanics keep their classic accuracy.
+// Acronym string from a lazer mods array (items are strings or {acronym,...}).
+function modAcronyms(mods) {
+  const a = mods.map((m) => (typeof m === 'string' ? m : m && m.acronym)).filter(Boolean);
+  return a.length ? a.join('') : 'NM';
+}
+
+// For lazer replays, read the exact data embedded in the .osr:
+//  • mods (incl. lazer-only ones like DC and custom rates) — the legacy bitmask
+//    drops these, so display and pp would otherwise miss them. All modes.
+//  • std only: slider-accurate accuracy + slider-hit counts (for exact pp).
+// Stable replays keep their legacy bitmask + classic accuracy.
 async function applyExactStats(ghosts, mode) {
-  if (mode !== GAMEMODE.STD) return; // slider-accuracy correction is std-specific
   await Promise.all(ghosts.map(async (g) => {
-    if (g.lazer === false) return; // stable: classic accuracy already matches
+    if (g.lazer === false) return; // stable: legacy bitmask is authoritative
     try {
       const solo = await readSoloStats(g.replayId, lzma);
-      if (!solo || !solo.statistics || !solo.maximum_statistics) return;
-      const acc = exactAccuracy(solo.statistics, solo.maximum_statistics);
-      if (acc != null) g.finalAcc = acc;
-      if (solo.statistics.slider_tail_hit != null) g.sliderEndHits = solo.statistics.slider_tail_hit;
-      if (solo.statistics.large_tick_hit != null) g.largeTickHits = solo.statistics.large_tick_hit;
-    } catch { /* keep classic */ }
+      if (!solo) return;
+      if (Array.isArray(solo.mods) && solo.mods.length) {
+        g.modsExact = solo.mods;                 // for rosu (correct rate/star/pp)
+        g.modsDisplay = modAcronyms(solo.mods);  // for the overlay
+      }
+      if (mode === GAMEMODE.STD && solo.statistics && solo.maximum_statistics) {
+        const acc = exactAccuracy(solo.statistics, solo.maximum_statistics);
+        if (acc != null) g.finalAcc = acc;
+        if (solo.statistics.slider_tail_hit != null) g.sliderEndHits = solo.statistics.slider_tail_hit;
+        if (solo.statistics.large_tick_hit != null) g.largeTickHits = solo.statistics.large_tick_hit;
+      }
+    } catch { /* keep legacy values */ }
   }));
 }
 
@@ -113,7 +126,7 @@ async function start({ onServersUp } = {}) {
     return {
       replayId: g.replayId,
       player: g.player,
-      mods: g.global ? g.mods : modString(g.mods),
+      mods: g.global ? g.mods : (g.modsDisplay || modString(g.mods)),
       global: !!g.global,
       country: g.country || '',
       finalScore: g.finalScore,
