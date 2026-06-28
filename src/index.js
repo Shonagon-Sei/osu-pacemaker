@@ -4,7 +4,7 @@ const path = require('path');
 const { config, validate } = require('../config');
 const log = require('./util/logger');
 const { ReplayIndex } = require('./osu/replayIndex');
-const { parseBeatmap } = require('./osu/osuParser');
+const { parseBeatmap, parseBreaks } = require('./osu/osuParser');
 const { SimPool } = require('./sim/simPool');
 const { TosuClient } = require('./server/tosuClient');
 const { RelayServer } = require('./server/relayServer');
@@ -166,7 +166,7 @@ async function start({ onServersUp } = {}) {
 
   const tosu = new TosuClient(config);
   let generation = 0;
-  const cache = { md5: null, info: null, beatmap: null, local: null, global: [] }; // memoised per map
+  const cache = { md5: null, info: null, beatmap: null, local: null, global: [], breaks: [] }; // memoised per map
 
   function ghostPayload(g) {
     return {
@@ -238,6 +238,7 @@ async function start({ onServersUp } = {}) {
       if (gen !== generation) return;
       local = attachPp(local, ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
       cache.md5 = info.md5; cache.info = info; cache.beatmap = beatmap; cache.local = local; cache.global = [];
+      cache.breaks = info.osuPath ? parseBreaks(info.osuPath) : [];
     }
 
     // ── global ghosts (on demand) ────────────────────────────────────────────
@@ -290,6 +291,7 @@ async function start({ onServersUp } = {}) {
       keyCount: beatmap ? beatmap.keyCount : 0,
       noteCount: beatmap ? beatmap.noteCount : 0,
       totalHits: beatmap ? beatmap.totalHits : 0,
+      breaks: cache.breaks || [],
       ghosts: trimmed.map(ghostPayload),
     });
     relay.sendStatus({ phase: 'ready', map: info.title, ghostCount: trimmed.length });

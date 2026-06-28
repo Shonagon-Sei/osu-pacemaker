@@ -95,4 +95,29 @@ function parseBeatmap(filePath) {
   };
 }
 
-module.exports = { parseBeatmap };
+/**
+ * Parse the break periods from a beatmap's [Events] section.
+ * Break lines look like `2,startTime,endTime` (the leading `2` — or `Break` —
+ * marks an event of type break). Times are in song-time ms, so they line up with
+ * the overlay's playhead regardless of rate-changing mods.
+ */
+function parseBreaks(filePath) {
+  let text;
+  try { text = fs.readFileSync(filePath, 'utf8'); } catch { return []; }
+  const lines = text.split(/\r?\n/);
+  const breaks = [];
+  let inEvents = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('[') && line.endsWith(']')) { inEvents = line === '[Events]'; continue; }
+    if (!inEvents || !line || line.startsWith('//')) continue;
+    const p = line.split(',');
+    if (p[0] !== '2' && p[0] !== 'Break') continue;
+    const start = parseInt(p[1], 10), end = parseInt(p[2], 10);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) breaks.push({ start, end });
+  }
+  breaks.sort((a, b) => a.start - b.start);
+  return breaks;
+}
+
+module.exports = { parseBeatmap, parseBreaks };

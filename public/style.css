@@ -47,7 +47,13 @@ html, body {
   transform: scale(var(--ui-scale));
   transform-origin: top left;
   font-size: calc(1em * var(--font-scale));
+  transition: opacity 0.35s ease;
 }
+
+/* "Only show during breaks": faded out while actively playing. */
+#overlay.play-hidden { opacity: 0; pointer-events: none; }
+/* Always visible while editing, even if the play-hidden class lingers. */
+#overlay.unlocked.play-hidden { opacity: 1; pointer-events: auto; }
 
 /* Affordances shown only when the overlay is "unlocked" for editing. */
 #overlay.unlocked {

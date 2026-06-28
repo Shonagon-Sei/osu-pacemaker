@@ -39,6 +39,7 @@
     sortBy: 'score',        // score | accuracy | combo | ratio
     maxGhosts: 10,
     focusMe: true,          // window the board around your rank when it's long
+    showOnBreakOnly: false, // hide the board during active play; show on breaks/pauses/end
     aheadCount: 4,          // players shown directly above you
     behindCount: 1,         // players shown directly below you
     swapCooldown: 450,      // ms a bar must wait before swapping again (debounce)
@@ -69,6 +70,7 @@
     { key: 'sortBy', label: 'Rank by', type: 'select', options: [['score', 'Score'], ['pp', 'PP'], ['accuracy', 'Accuracy'], ['combo', 'Combo'], ['ratio', 'Perfect:Great ratio']] },
     { key: 'maxGhosts', label: 'Max rows (full view)', type: 'range', min: 1, max: 50, step: 1 },
     { key: 'focusMe', label: 'Follow my rank (window)', type: 'bool' },
+    { key: 'showOnBreakOnly', label: 'Only show during breaks', type: 'bool' },
     { key: 'aheadCount', label: 'Players above me', type: 'range', min: 0, max: 15, step: 1 },
     { key: 'behindCount', label: 'Players below me', type: 'range', min: 0, max: 10, step: 1 },
     { key: 'swapCooldown', label: 'Sort debounce (ms)', type: 'range', min: 0, max: 5000, step: 50 },
@@ -167,6 +169,7 @@
   // ── State ────────────────────────────────────────────────────────────────────
   const state = {
     ghosts: [],          // full received list (sorted by final score desc)
+    breaks: [],          // [{start,end}] break periods (song-time ms)
     totalHits: 0,
     maxComboPortion: 0,
     mode: 3,             // beatmap mode (for classic-score conversion of the live bar)
@@ -457,9 +460,24 @@
     board.style.height = `${entries.length * slot}px`;
   }
 
+  const inBreakAt = (t) => state.breaks.some((b) => t >= b.start && t <= b.end);
+
+  // "Only show during breaks": hide the board while actively playing, but reveal
+  // it on breaks, pauses, quits and song end. Never hidden while the settings
+  // panel is open (so you can configure it) or when there are no rows yet.
+  function updateBreakVisibility(t) {
+    let hide = false;
+    if (settings.showOnBreakOnly && configPanel.hidden) {
+      const activelyPlaying = state.playing && !state.finished && !state.paused && !inBreakAt(t);
+      hide = activelyPlaying;
+    }
+    overlayEl.classList.toggle('play-hidden', hide);
+  }
+
   function frame() {
     overlayEl.classList.toggle('paused', state.playing && state.paused);
     render(windowEntries(applyOrder(collectEntries())));
+    updateBreakVisibility(playhead());
     syncWindowBounds(); // keep the locked OS window tight to the board
     requestAnimationFrame(frame);
   }
@@ -495,6 +513,7 @@
     switch (msg.type) {
       case 'ghosts': {
         state.ghosts = msg.ghosts || [];
+        state.breaks = msg.breaks || [];
         const total = msg.totalHits || msg.noteCount || 0;
         state.totalHits = total;
         state.maxComboPortion = maxComboPortionFor(total);
