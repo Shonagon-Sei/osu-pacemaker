@@ -90,23 +90,28 @@ ipcMain.on('overlay:full', () => {
   win.setBounds({ ...displayBounds });
 });
 
+// First-run guide asks to unlock so the settings panel is clickable.
+ipcMain.on('overlay:request-unlock', () => { if (clickThrough) applyClickThrough(false); });
+
+// Apply a lock state: click-through + focusability, and mirror it into the page.
+function applyClickThrough(through) {
+  if (!win) return;
+  clickThrough = through;
+  win.setIgnoreMouseEvents(clickThrough); // no forward (see createWindow)
+  win.setFocusable(!clickThrough); // need focus to receive drag clicks while unlocked
+  if (!clickThrough) win.focus();
+  win.webContents
+    .executeJavaScript(`window.setOverlayUnlocked && window.setOverlayUnlocked(${!clickThrough})`)
+    .catch(() => {});
+}
+
 app.whenReady().then(() => {
   // Reduce the chance the compositor pushes us behind the game.
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   createWindow();
 
   globalShortcut.register('CommandOrControl+Shift+O', () => app.quit());
-  globalShortcut.register('CommandOrControl+Shift+L', () => {
-    if (!win) return;
-    clickThrough = !clickThrough;
-    win.setIgnoreMouseEvents(clickThrough); // no forward (see createWindow)
-    win.setFocusable(!clickThrough); // need focus to receive drag clicks while unlocked
-    if (!clickThrough) win.focus();
-    // Mirror the lock state into the page so drag/resize handles show/hide.
-    win.webContents
-      .executeJavaScript(`window.setOverlayUnlocked && window.setOverlayUnlocked(${!clickThrough})`)
-      .catch(() => {});
-  });
+  globalShortcut.register('CommandOrControl+Shift+L', () => applyClickThrough(!clickThrough));
 
   // Periodically reassert top-most; some games/Windows focus changes can demote it.
   setInterval(() => {

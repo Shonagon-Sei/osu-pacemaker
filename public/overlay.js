@@ -66,7 +66,7 @@
 
   const SCHEMA = [
     { group: 'Sorting & behaviour' },
-    { key: 'sortBy', label: 'Rank by', type: 'select', options: [['score', 'Score'], ['accuracy', 'Accuracy'], ['combo', 'Combo'], ['ratio', 'Perfect:Great ratio']] },
+    { key: 'sortBy', label: 'Rank by', type: 'select', options: [['score', 'Score'], ['pp', 'PP'], ['accuracy', 'Accuracy'], ['combo', 'Combo'], ['ratio', 'Perfect:Great ratio']] },
     { key: 'maxGhosts', label: 'Max rows (full view)', type: 'range', min: 1, max: 50, step: 1 },
     { key: 'focusMe', label: 'Follow my rank (window)', type: 'bool' },
     { key: 'aheadCount', label: 'Players above me', type: 'range', min: 0, max: 15, step: 1 },
@@ -178,7 +178,7 @@
     lastSwap: new Map(),
     lastTime: 0,
     lastTimeAt: 0,
-    you: { name: 'You', score: 0, acc: 100, combo: 0, maxCombo: 0, ratio: 0, mods: '', prevCombo: 0, comboPortion: 0 },
+    you: { name: 'You', score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, mods: '', prevCombo: 0, comboPortion: 0 },
   };
 
   // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -192,6 +192,7 @@
   const template = document.getElementById('bar-template');
   const configBtn = document.getElementById('config-btn');
   const configPanel = document.getElementById('config-panel');
+  const welcomeEl = document.getElementById('welcome');
   const bars = new Map();
 
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -207,6 +208,7 @@
   // stability is handled by the cooldown (the "Sort debounce" setting), not this.
   const METRIC = {
     score:    { val: (e) => e.score,  margin: 1,    fmt: (e) => fmt(e.display) },
+    pp:       { val: (e) => e.pp,     margin: 0.5,  fmt: (e) => `${Math.round(e.pp || 0)}pp` },
     accuracy: { val: (e) => e.acc,    margin: 0.005, fmt: (e) => `${e.acc.toFixed(2)}%` },
     combo:    { val: (e) => e.combo,  margin: 0.5,  fmt: (e) => `${e.combo || 0}x` },
     ratio:    { val: (e) => e.ratio,  margin: 0.01, fmt: (e) => `${(e.ratio || 0).toFixed(2)}:1` },
@@ -235,6 +237,22 @@
     };
   }
 
+  // Interpolate a ghost's pp curve at time t. pp grows with the partial star
+  // rating, not with score, so we use the backend-computed ppTimeline rather
+  // than scaling finalPp by score. Falls back to a score-scaled estimate when
+  // no curve is present (e.g. pp computation unavailable).
+  function ppAt(g, t, score) {
+    const tl = g.ppTimeline;
+    if (!tl || !tl.length) return g.finalScore > 0 ? (g.finalPp || 0) * (score / g.finalScore) : 0;
+    if (t <= tl[0].t) return 0;
+    if (t >= tl[tl.length - 1].t) return g.finalPp || tl[tl.length - 1].pp;
+    let lo = 0, hi = tl.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tl[mid].t <= t) lo = mid; else hi = mid; }
+    const a = tl[lo], b = tl[hi];
+    const f = (t - a.t) / ((b.t - a.t) || 1);
+    return a.pp + (b.pp - a.pp) * f;
+  }
+
   function playhead() {
     if (state.playing) return state.paused ? state.lastTime : state.lastTime + (performance.now() - state.lastTimeAt);
     if (state.finished) return state.lastTime;
@@ -259,19 +277,28 @@
     const showMax = idle || state.finished;
     const entries = [];
 
+    // Dedupe by id: a duplicate replayId would push the same id into state.order
+    // twice and corrupt ranks/positions (bars share a slot, ranks skip 2/4/6).
+    // Ids are unique at the source now; this is a belt-and-braces guard.
+    const seenIds = new Set();
     for (const g of visibleGhosts()) {
+      if (seenIds.has(g.replayId)) continue;
+      seenIds.add(g.replayId);
       let score, acc, combo, ratio;
       // Per-sample ratio is rescaled to the exact final (see simWorker), so it
       // progresses over the play yet ends correct. Idle/finished use the final.
       if (idle) { score = g.finalScore; acc = g.finalAcc; combo = g.maxCombo; ratio = ratioOf(g.counts); }
       else { const s = ghostAt(g, t); score = s.score; acc = s.acc; combo = showMax ? g.maxCombo : s.combo; ratio = s.ratio != null ? s.ratio : ratioOf(g.counts); }
-      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score, acc, combo, ratio, isYou: false, global: g.global });
+      // pp is exact at the end (computed backend-side); mid-race it follows the
+      // ghost's pp curve (partial star rating), not score.
+      const pp = showMax ? (g.finalPp || 0) : ppAt(g, t, score);
+      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score, acc, combo, ratio, pp, isYou: false, global: g.global });
     }
 
     if (state.playing || state.finished) {
       entries.push({
         id: '__you__', name: state.you.name, mods: state.you.mods,
-        score: state.you.score, acc: state.you.acc,
+        score: state.you.score, acc: state.you.acc, pp: state.you.pp || 0,
         combo: showMax ? state.you.maxCombo : state.you.combo, ratio: state.you.ratio, isYou: true,
       });
     }
@@ -366,7 +393,7 @@
       el,
       refs: {
         rank: el.querySelector('.rank'), name: el.querySelector('.name'),
-        mods: el.querySelector('.mods'), s1: el.querySelector('.s1'), s2: el.querySelector('.s2'),
+        mods: el.querySelector('.mods'), s1: el.querySelector('.s1'), s2: el.querySelector('.s2'), s3: el.querySelector('.s3'),
         score: el.querySelector('.score'),
       },
       display: 0, prevRank: 99,
@@ -380,7 +407,7 @@
     const seen = new Set();
     const slot = SLOT();
     const sortBy = settings.sortBy;
-    const subKeys = ['accuracy', 'combo', 'score', 'ratio'].filter((k) => k !== sortBy).slice(0, 2);
+    const subKeys = ['accuracy', 'combo', 'pp', 'score', 'ratio'].filter((k) => k !== sortBy).slice(0, 3);
 
     entries.forEach((e, i) => {
       seen.add(e.id);
@@ -395,7 +422,7 @@
         bar.el.classList.remove('you', 'leader');
         bar.refs.rank.textContent = '';
         bar.refs.name.textContent = `⋯ ${e.hidden} more ⋯`;
-        bar.refs.mods.textContent = bar.refs.s1.textContent = bar.refs.s2.textContent = bar.refs.score.textContent = '';
+        bar.refs.mods.textContent = bar.refs.s1.textContent = bar.refs.s2.textContent = bar.refs.s3.textContent = bar.refs.score.textContent = '';
         return;
       }
       bar.el.classList.remove('gap');
@@ -421,6 +448,7 @@
       bar.refs.score.textContent = METRIC[sortBy].fmt(e);
       bar.refs.s1.textContent = subKeys[0] ? METRIC[subKeys[0]].fmt(e) : '';
       bar.refs.s2.textContent = subKeys[1] ? METRIC[subKeys[1]].fmt(e) : '';
+      bar.refs.s3.textContent = subKeys[2] ? METRIC[subKeys[2]].fmt(e) : '';
     });
 
     for (const [id, bar] of bars) {
@@ -448,6 +476,7 @@
     state.you.score = live.score || 0;
     state.you.ratio = h.n300 > 0 ? h.geki / h.n300 : h.geki;
     state.you.acc = live.acc;
+    state.you.pp = live.pp || 0;
     state.you.combo = c;
     state.you.maxCombo = live.maxCombo || Math.max(state.you.maxCombo, c);
     state.you.mods = live.mods || '';
@@ -458,7 +487,7 @@
   }
 
   function resetYou() {
-    Object.assign(state.you, { score: 0, acc: 100, combo: 0, maxCombo: 0, ratio: 0, prevCombo: 0, comboPortion: 0 });
+    Object.assign(state.you, { score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, prevCombo: 0, comboPortion: 0 });
   }
 
   // ── Messages ──────────────────────────────────────────────────────────────────
@@ -562,6 +591,26 @@
 
   configBtn.onclick = () => { configPanel.hidden = !configPanel.hidden; };
   document.getElementById('config-close').onclick = () => { configPanel.hidden = true; };
+
+  // ── First-run guide ───────────────────────────────────────────────────────────
+  // Most users don't know the overlay is configurable. On the very first launch
+  // we unlock it (so the panel is clickable), open the settings, and show a short
+  // guide. Shown once, tracked in localStorage.
+  const ONBOARD_KEY = 'osu-pacemaker-onboarded';
+  function onboarded() { try { return !!localStorage.getItem(ONBOARD_KEY); } catch { return false; } }
+  function maybeShowWelcome() {
+    if (onboarded()) return;
+    // Make the overlay interactive: in Electron ask main to unlock; elsewhere
+    // (OBS browser source) it's already interactive.
+    if (isElectron && window.overlayApp && window.overlayApp.requestUnlock) window.overlayApp.requestUnlock();
+    else setUnlocked(true);
+    configPanel.hidden = false;
+    welcomeEl.hidden = false;
+  }
+  document.getElementById('welcome-dismiss').onclick = () => {
+    welcomeEl.hidden = true; // leave the settings panel open so they can configure
+    try { localStorage.setItem(ONBOARD_KEY, '1'); } catch { /* ignore */ }
+  };
   document.getElementById('config-reset').onclick = () => {
     settings = { ...DEFAULTS, left: settings.left, top: settings.top };
     state.order = []; state.lastSwap.clear();
@@ -617,6 +666,7 @@
 
   buildConfig();
   applySettings();
+  maybeShowWelcome();
 
   // ── WebSocket with auto-reconnect ──────────────────────────────────────────────
   async function getRelayPort() {

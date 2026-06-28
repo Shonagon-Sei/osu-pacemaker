@@ -73,9 +73,14 @@ parentPort.on('message', async (job) => {
       id,
       ok: true,
       ghost: {
-        replayId: replay.replayMD5 || osrPath,
+        // Unique per file. NOT replayMD5: stable derives that hash from the
+        // score's stats with no timestamp, so two plays with an identical score
+        // on the same map collide — duplicate ids corrupt the board (bars share
+        // a slot, ranks skip 2/4/6). The file path is always unique.
+        replayId: osrPath,
         player: replay.player || 'Ghost',
         mods: replay.mods,
+        lazer: isLazer, // pp uses lazer vs stable scoring to match the replay's origin
         exact: isLazer && replay.stableScore > 0,
         stableScore: replay.stableScore,
         finalScore,

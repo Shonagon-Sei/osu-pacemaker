@@ -159,6 +159,9 @@ class TosuClient extends EventEmitter {
         restart,
         score: play.score || 0,
         acc: play.accuracy != null ? +play.accuracy.toFixed(2) : 100,
+        // tosu reports live pp as play.pp.current (v2). Guarded so a schema change
+        // just degrades pp to 0 rather than breaking the live tick.
+        pp: play.pp && typeof play.pp.current === 'number' ? Math.round(play.pp.current) : 0,
         combo: combo.current || 0,
         maxCombo: combo.max || 0,
         mods: (play.mods && play.mods.name) || '', // your current mods (for same-mods filter)

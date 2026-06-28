@@ -25,9 +25,12 @@ function buildHeaderGhost(osrPath, beatmap, mode, stepMs) {
   const sim = buildApproxTimeline(objectTimes, { score: h.stableScore, acc, maxCombo: h.maxCombo, counts: h.counts }, stepMs);
 
   return {
-    replayId: h.replayMD5 || osrPath,
+    // Unique per file (not replayMD5, which collides across identical stable
+    // scores — see simWorker.js).
+    replayId: osrPath,
     player: h.player || 'Ghost',
     mods: h.mods, // numeric bitmask (payload runs it through modString, like mania)
+    lazer: true, // only lazer (standardised) replays reach here; stable returns null above
     finalScore: h.stableScore,
     finalAcc: acc,
     maxCombo: h.maxCombo,

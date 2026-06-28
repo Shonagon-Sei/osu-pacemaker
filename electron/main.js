@@ -62,6 +62,9 @@ ipcMain.on('overlay:full', () => {
   win.setBounds({ ...displayBounds });
 });
 
+// First-run guide asks to unlock so the settings panel is clickable.
+ipcMain.on('overlay:request-unlock', () => { if (locked) setLocked(false); });
+
 function buildMenu() {
   return Menu.buildFromTemplate([
     { label: 'osu! Pacemaker', enabled: false },

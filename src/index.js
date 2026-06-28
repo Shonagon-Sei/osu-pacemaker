@@ -11,6 +11,7 @@ const { RelayServer } = require('./server/relayServer');
 const { startStaticServer } = require('./server/httpServer');
 const { fetchGlobalGhosts } = require('./osu/globalGhosts');
 const { buildHeaderGhost } = require('./osu/headerGhost');
+const { loadPpMap, createPpCalc, attachPp } = require('./osu/pp');
 const { GAMEMODE } = require('./osu/osrParser');
 const { classicDisplayScore } = require('./osu/scoreV2');
 const { modString } = require('./osu/mods');
@@ -24,6 +25,22 @@ const { modString } = require('./osu/mods');
  *    map, reusing the cached local simulation.
  *  - Generation-guarded so map switches abandon stale in-flight work.
  */
+// Collapse indistinguishable local replays into one ghost. Stable saves a new
+// .osr for every play, so grinding a chart leaves many identical scores; without
+// this the board fills with duplicate-looking rows. Two replays with the same
+// player + final score + combo + accuracy are the same achievement on the board.
+function dedupeLocal(ghosts) {
+  const seen = new Set();
+  const out = [];
+  for (const g of ghosts) {
+    const key = `${(g.player || '').toLowerCase()}|${g.finalScore}|${g.maxCombo}|${g.finalAcc}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(g);
+  }
+  return out;
+}
+
 async function start({ onServersUp } = {}) {
   log.info('osu! Local Leaderboard starting...');
   log.info('Indexing source(s):', config.sourceSummary);
@@ -67,6 +84,8 @@ async function start({ onServersUp } = {}) {
       country: g.country || '',
       finalScore: g.finalScore,
       finalAcc: g.finalAcc,
+      finalPp: g.finalPp || 0,
+      ppTimeline: g.ppTimeline || [],
       maxCombo: g.maxCombo,
       counts: g.counts,
       startTime: g.startTime,
@@ -77,6 +96,10 @@ async function start({ onServersUp } = {}) {
 
   async function build(info, reuseLocal) {
     const gen = ++generation;
+    // Lazy pp calculator for this map: parses the .osu once and is reused for
+    // both local and global ghosts within this build.
+    let _ppCalc = null;
+    const ppCalc = () => (_ppCalc || (_ppCalc = createPpCalc(loadPpMap(info.osuPath, info.mode), info.mode)));
     // NOTE: we do NOT clear the board here. Clearing (which resets your live play
     // on the overlay) only happens on a genuine map change. Same-map rebuilds
     // (e.g. toggling global) update the ghost list in place so nothing collapses
@@ -115,6 +138,7 @@ async function start({ onServersUp } = {}) {
           log.info(index.mapCount === 0 ? 'No replays indexed (check install paths / `npm run index`).' : 'No local replays for this map.');
         }
       }
+      local = attachPp(dedupeLocal(local), ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
       cache.md5 = info.md5; cache.info = info; cache.beatmap = beatmap; cache.local = local; cache.global = [];
     }
 
@@ -126,6 +150,7 @@ async function start({ onServersUp } = {}) {
         const count = relay.clientConfig.globalCount || config.globalCount;
         global = await fetchGlobalGhosts(config, info.beatmapId, info.mode, beatmap, config.simStepMs, count);
         if (gen !== generation) return;
+        attachPp(global, ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
         cache.global = global; // remember the good result
         log.ok(`Fetched global top ${global.length} for beatmap ${info.beatmapId}.`);
       } catch (e) {

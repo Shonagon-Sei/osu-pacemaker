@@ -14,3 +14,9 @@ contextBridge.exposeInMainWorld('overlayBounds', {
   // Restore the full-screen window (used while unlocked/editing).
   full: () => ipcRenderer.send('overlay:full'),
 });
+
+contextBridge.exposeInMainWorld('overlayApp', {
+  // Ask the main process to unlock (make interactive) — used by the first-run
+  // guide so the settings panel is clickable on first launch.
+  requestUnlock: () => ipcRenderer.send('overlay:request-unlock'),
+});

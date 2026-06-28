@@ -24,6 +24,7 @@ async function fetchGlobalGhosts(config, beatmapId, mode, beatmap, stepMs, count
       replayId: `g${e.scoreId}`,
       player: e.player,
       mods: e.mods, // acronyms joined, e.g. "HDHRCL"
+      lazer: true,  // modern osu! scores are lazer pp (CL mod conveys classic)
       global: true,
       country: e.countryCode || '',
       finalScore: score,
