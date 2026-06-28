@@ -1,6 +1,6 @@
 {
   "name": "osu-pacemaker",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Live-scrolling local + global leaderboard overlay for osu!. Races saved .osr replays (and the global top scores) against your live play via tosu.",
   "type": "commonjs",
   "author": "Kumokoni",
