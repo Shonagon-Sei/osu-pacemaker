@@ -224,4 +224,35 @@ function readSoloStats(filePath, lzma) {
   });
 }
 
-module.exports = { GAMEMODE, parseHeader, sniffHeader, parseReplay, decodeFrames, readSoloStats };
+/**
+ * Decode an osu!standard replay payload into cursor frames.
+ * Tuples are `w|x|y|z`: w = ms since previous frame, x/y = cursor position,
+ * z = pressed-key bitmask (M1=1, M2=2, K1=4, K2=8). Times are cumulative (the
+ * replay clock — real time). The -12345 seed frame is dropped.
+ */
+function decodeCursorFrames(replayData, lzma) {
+  return new Promise((resolve, reject) => {
+    if (!replayData || replayData.length === 0) return resolve([]);
+    lzma.decompress(replayData, (result, error) => {
+      if (error) return reject(error);
+      try {
+        const text = Buffer.isBuffer(result) ? result.toString('latin1') : Buffer.from(result).toString('latin1');
+        const frames = [];
+        let t = 0;
+        for (const tuple of text.split(',')) {
+          if (!tuple) continue;
+          const parts = tuple.split('|');
+          if (parts.length < 4) continue;
+          const w = parseInt(parts[0], 10);
+          if (w === -12345) continue; // RNG-seed marker
+          t += w;
+          frames.push({ t, x: parseFloat(parts[1]), y: parseFloat(parts[2]), k: parseInt(parts[3], 10) | 0 });
+        }
+        frames.sort((a, b) => a.t - b.t);
+        resolve(frames);
+      } catch (e) { reject(e); }
+    });
+  });
+}
+
+module.exports = { GAMEMODE, parseHeader, sniffHeader, parseReplay, decodeFrames, decodeCursorFrames, readSoloStats };

@@ -12,7 +12,9 @@ const { startStaticServer } = require('./server/httpServer');
 const { fetchGlobalGhosts } = require('./osu/globalGhosts');
 const { buildHeaderGhost } = require('./osu/headerGhost');
 const { loadPpMap, createPpCalc, attachPp } = require('./osu/pp');
-const { GAMEMODE, readSoloStats } = require('./osu/osrParser');
+const { GAMEMODE, readSoloStats, parseReplay, decodeCursorFrames } = require('./osu/osrParser');
+const { parseStdBeatmap } = require('./osu/stdBeatmap');
+const { judge: judgeStd } = require('./osu/stdJudge');
 const lzma = require('lzma');
 const { classicDisplayScore } = require('./osu/scoreV2');
 const { modString } = require('./osu/mods');
@@ -85,6 +87,50 @@ async function applyExactStats(ghosts, mode) {
         if (solo.statistics.large_tick_hit != null) g.largeTickHits = solo.statistics.large_tick_hit;
       }
     } catch { /* keep legacy values */ }
+  }));
+}
+
+// Rate / HR / EZ for the std judge — prefer the exact lazer mods, fall back to
+// the legacy bitmask for stable replays.
+function modFlags(g) {
+  const acr = Array.isArray(g.modsExact) ? g.modsExact.map((m) => (typeof m === 'string' ? m : m && m.acronym)) : [];
+  const num = typeof g.mods === 'number' ? g.mods : 0;
+  const has = (a, bit) => acr.includes(a) || (num & bit) !== 0;
+  const dt = has('DT', 64) || has('NC', 512);
+  const ht = has('HT', 256) || acr.includes('DC');
+  return { rate: dt ? 1.5 : ht ? 0.75 : 1, hardRock: has('HR', 16), easy: has('EZ', 2) };
+}
+
+// Replace each std ghost's approximated curve with a REAL one: replay the cursor
+// frames against the beatmap (see stdJudge) to get true per-moment score/acc/
+// combo, then rescale to the exact final score. Final numbers stay exact; only
+// the in-between shape comes from the judge (so misses/breaks show at the right
+// moments). Runs in the main process — a one-time per-map cost.
+async function applyStdJudge(ghosts, osuPath, mode) {
+  if (mode !== GAMEMODE.STD || !osuPath || !ghosts.length) return;
+  let bm;
+  try { bm = parseStdBeatmap(osuPath); } catch { return; }
+  await Promise.all(ghosts.map(async (g) => {
+    try {
+      const rep = parseReplay(g.replayId); // replayId is the .osr path
+      const frames = await decodeCursorFrames(rep.replayData, lzma);
+      if (!frames.length) return;
+      const res = judgeStd(bm, frames, { ...modFlags(g), stepMs: config.simStepMs });
+      if (!res.timeline.length || !(res.rawFinal > 0)) return;
+      const k = g.finalScore / res.rawFinal;       // pin the curve to the exact final score
+      const last = res.timeline[res.timeline.length - 1];
+      const accShift = g.finalAcc - last.acc;       // and to the exact final accuracy
+      g.timeline = res.timeline.map((p) => ({
+        t: p.t,
+        score: Math.round(p.raw * k),
+        acc: Math.min(100, Math.max(0, +(p.acc + accShift).toFixed(2))),
+        combo: p.combo,
+        ratio: 0,
+      }));
+      g.timeline[g.timeline.length - 1].score = g.finalScore;
+      g.startTime = res.startTime;
+      g.endTime = res.endTime;
+    } catch { /* keep the approximated curve on any failure */ }
   }));
 }
 
@@ -186,7 +232,9 @@ async function start({ onServersUp } = {}) {
         }
       }
       local = dedupeLocal(local);
-      await applyExactStats(local, info.mode); // exact lazer accuracy + slider hits from the .osr
+      await applyExactStats(local, info.mode); // exact lazer accuracy + slider hits + mods from the .osr
+      if (gen !== generation) return;
+      await applyStdJudge(local, info.osuPath, info.mode); // real per-moment std curve from the replay
       if (gen !== generation) return;
       local = attachPp(local, ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
       cache.md5 = info.md5; cache.info = info; cache.beatmap = beatmap; cache.local = local; cache.global = [];
