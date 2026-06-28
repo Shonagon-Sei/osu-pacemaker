@@ -113,9 +113,11 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Shift+O', () => app.quit());
   globalShortcut.register('CommandOrControl+Shift+L', () => applyClickThrough(!clickThrough));
 
-  // Periodically reassert top-most; some games/Windows focus changes can demote it.
+  // Reassert top-most ONLY while locked (playing). While unlocked (editing),
+  // reasserting steals focus from native <select>/color-picker popups and snaps
+  // them shut — and we don't need to fight a game for top-most while editing.
   setInterval(() => {
-    if (win && !win.isDestroyed()) win.setAlwaysOnTop(true, 'screen-saver');
+    if (win && !win.isDestroyed() && clickThrough) win.setAlwaysOnTop(true, 'screen-saver');
   }, 2000);
 });
 

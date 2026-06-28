@@ -102,7 +102,10 @@ function createWindow(httpPort) {
   win.setIgnoreMouseEvents(true); // no forward (see setLocked)
   win.loadURL(`http://localhost:${httpPort}/`);
 
-  setInterval(() => { if (win && !win.isDestroyed()) win.setAlwaysOnTop(true, 'screen-saver'); }, 2000);
+  // Reassert top-most ONLY while locked (playing). While unlocked (editing),
+  // reasserting steals focus from native <select>/color-picker popups and snaps
+  // them shut — and we don't need to fight a game for top-most while editing.
+  setInterval(() => { if (win && !win.isDestroyed() && locked) win.setAlwaysOnTop(true, 'screen-saver'); }, 2000);
 }
 
 function createTray() {

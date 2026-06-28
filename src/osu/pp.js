@@ -58,10 +58,13 @@ function loadPpMap(src, mode) {
  */
 function createPpCalc(map, mode) {
   const r = getRosu();
-  if (!r || !map) return { pp: () => 0 };
+  if (!r || !map) return { pp: () => 0, timeline: () => [] };
   const diffCache = new Map(); // `${mods}|${lazer}` -> DifficultyAttributes
 
   return {
+    // Compute pp. Uses exact slider-end/large-tick hits when available (parsed
+    // from the lazer replay) so std pp matches osu! exactly; otherwise rosu
+    // assumes all slider parts hit.
     pp(play) {
       try {
         const mods = play.mods != null ? play.mods : 0;
@@ -74,6 +77,8 @@ function createPpCalc(map, mode) {
         }
         const args = { mods, lazer, ...hitCountArgs(mode, play.counts) };
         if (mode !== 3 && play.combo > 0) args.combo = play.combo; // combo unused for mania
+        if (play.sliderEndHits != null) args.sliderEndHits = play.sliderEndHits; // exact (lazer std)
+        if (play.largeTickHits != null) args.largeTickHits = play.largeTickHits;
         // Fall back to accuracy only when we somehow have no counts.
         if (!play.counts) args.accuracy = Math.max(0, Math.min(100, +play.accuracy || 0));
         const value = new r.Performance(args).calculate(attrs).pp;
@@ -164,15 +169,33 @@ function hitCountArgs(mode, c) {
 
 /**
  * Attach `finalPp` (exact) and `ppTimeline` (sparse race curve) to each ghost.
+ * `finalAcc` is expected to already be the osu!-accurate value (set by the caller
+ * from exact lazer stats / the API); the in-race accuracy curve is aligned to it.
  * `objectTimes` are the beatmap's hit-object times (ms) for mapping the curve.
  */
 function attachPp(ghosts, calc, objectTimes) {
   for (const g of ghosts) {
-    const play = { mods: g.mods, counts: g.counts, combo: g.maxCombo, lazer: g.lazer, accuracy: g.finalAcc };
+    const play = { mods: g.mods, counts: g.counts, combo: g.maxCombo, lazer: g.lazer, accuracy: g.finalAcc, sliderEndHits: g.sliderEndHits, largeTickHits: g.largeTickHits };
     g.finalPp = calc.pp(play);
+    // Align the in-race accuracy curve so it lands on the (osu-accurate) final.
+    const at = g.timeline;
+    if (at && at.length) {
+      const delta = g.finalAcc - at[at.length - 1].acc;
+      if (Math.abs(delta) > 0.001) for (const p of at) p.acc = Math.min(100, Math.max(0, +(p.acc + delta).toFixed(2)));
+    }
     g.ppTimeline = calc.timeline(play, objectTimes);
-    // Pin the final sample to the exact value so the race ends on the real pp.
-    if (g.ppTimeline.length) g.ppTimeline[g.ppTimeline.length - 1].pp = g.finalPp;
+    // The gradual curve gives the right SHAPE but its absolute scale can be off:
+    // for lazer std it omits slider-end/tick hits (treated as missed), depressing
+    // the whole curve. Rescale so the end matches the exact finalPp — the shape
+    // (partial star rating) is preserved and the magnitude is anchored correctly.
+    const tl = g.ppTimeline;
+    if (tl.length) {
+      const last = tl[tl.length - 1].pp;
+      const k = last > 0 && g.finalPp > 0 ? g.finalPp / last : 1;
+      let prev = 0;
+      for (const p of tl) { let v = Math.round(p.pp * k); if (v < prev) v = prev; prev = v; p.pp = v; }
+      tl[tl.length - 1].pp = g.finalPp; // exact at the end
+    }
   }
   return ghosts;
 }

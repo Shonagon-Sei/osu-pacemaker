@@ -12,7 +12,8 @@ const { startStaticServer } = require('./server/httpServer');
 const { fetchGlobalGhosts } = require('./osu/globalGhosts');
 const { buildHeaderGhost } = require('./osu/headerGhost');
 const { loadPpMap, createPpCalc, attachPp } = require('./osu/pp');
-const { GAMEMODE } = require('./osu/osrParser');
+const { GAMEMODE, readSoloStats } = require('./osu/osrParser');
+const lzma = require('lzma');
 const { classicDisplayScore } = require('./osu/scoreV2');
 const { modString } = require('./osu/mods');
 
@@ -39,6 +40,39 @@ function dedupeLocal(ghosts) {
     out.push(g);
   }
   return out;
+}
+
+// osu! accuracy as DISPLAYED by lazer, from a replay's exact statistics. Unlike
+// the classic header counts, lazer weights slider tails (150) and large ticks
+// (30) alongside circles/heads (300/100/50); "ignore" results (slider bodies)
+// don't count. Weights verified by round-tripping rosu's own generator.
+const ACC_WEIGHT = {
+  great: 300, perfect: 300, good: 200, ok: 100, meh: 50, miss: 0,
+  large_tick_hit: 30, large_tick_miss: 0, slider_tail_hit: 150, small_tick_hit: 10, small_tick_miss: 0,
+};
+function exactAccuracy(stats, max) {
+  let num = 0, den = 0;
+  for (const k in max) { const w = ACC_WEIGHT[k]; if (w != null) den += w * max[k]; }
+  for (const k in stats) { const w = ACC_WEIGHT[k]; if (w != null) num += w * stats[k]; }
+  return den > 0 ? +(num / den * 100).toFixed(2) : null;
+}
+
+// For lazer replays, read the exact statistics embedded in the .osr and correct
+// each ghost's accuracy + slider-hit counts (used for exact std pp). Stable
+// replays and modes without slider mechanics keep their classic accuracy.
+async function applyExactStats(ghosts, mode) {
+  if (mode !== GAMEMODE.STD) return; // slider-accuracy correction is std-specific
+  await Promise.all(ghosts.map(async (g) => {
+    if (g.lazer === false) return; // stable: classic accuracy already matches
+    try {
+      const solo = await readSoloStats(g.replayId, lzma);
+      if (!solo || !solo.statistics || !solo.maximum_statistics) return;
+      const acc = exactAccuracy(solo.statistics, solo.maximum_statistics);
+      if (acc != null) g.finalAcc = acc;
+      if (solo.statistics.slider_tail_hit != null) g.sliderEndHits = solo.statistics.slider_tail_hit;
+      if (solo.statistics.large_tick_hit != null) g.largeTickHits = solo.statistics.large_tick_hit;
+    } catch { /* keep classic */ }
+  }));
 }
 
 async function start({ onServersUp } = {}) {
@@ -138,7 +172,10 @@ async function start({ onServersUp } = {}) {
           log.info(index.mapCount === 0 ? 'No replays indexed (check install paths / `npm run index`).' : 'No local replays for this map.');
         }
       }
-      local = attachPp(dedupeLocal(local), ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
+      local = dedupeLocal(local);
+      await applyExactStats(local, info.mode); // exact lazer accuracy + slider hits from the .osr
+      if (gen !== generation) return;
+      local = attachPp(local, ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
       cache.md5 = info.md5; cache.info = info; cache.beatmap = beatmap; cache.local = local; cache.global = [];
     }
 

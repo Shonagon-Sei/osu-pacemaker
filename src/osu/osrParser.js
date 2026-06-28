@@ -181,4 +181,47 @@ function decodeFrames(replayData, lzma) {
   });
 }
 
-module.exports = { GAMEMODE, parseHeader, sniffHeader, parseReplay, decodeFrames };
+/**
+ * Read the EXACT lazer statistics from a replay, if present.
+ *
+ * osu!lazer appends a `LegacyReplaySoloScoreInfo` block after the replay data:
+ *   long onlineScoreId, int compressedLen, byte[compressedLen] LZMA(JSON)
+ * The JSON's `statistics` / `maximum_statistics` carry the real slider-tail and
+ * large-tick hits (and great/ok/meh/miss) that the legacy header counts omit —
+ * which is what makes std accuracy and pp match osu! exactly. Returns the parsed
+ * object ({ statistics, maximum_statistics, ... }) or null for stable / older
+ * replays that lack the block.
+ */
+function readSoloStats(filePath, lzma) {
+  return new Promise((resolve) => {
+    let buf;
+    try { buf = fs.readFileSync(filePath); } catch { return resolve(null); }
+    try {
+      const r = new BinaryReader(buf);
+      r.byte();            // mode
+      const version = r.int();
+      if (version < 30000000) return resolve(null); // pre-lazer: no block
+      r.string(); r.string(); r.string();           // beatmap md5, player, replay md5
+      for (let i = 0; i < 6; i++) r.short();         // counts
+      r.int(); r.short(); r.byte(); r.int();         // score, combo, perfect, mods
+      r.string();          // life-bar graph
+      r.long();            // timestamp
+      const replayLen = r.int();
+      r.skip(replayLen);   // compressed replay frames
+      r.long();            // online score id
+      if (r.remaining < 4) return resolve(null);
+      const blockLen = r.int();
+      if (blockLen <= 0 || blockLen > r.remaining) return resolve(null);
+      const block = buf.subarray(r.pos, r.pos + blockLen);
+      lzma.decompress(block, (result, err) => {
+        if (err) return resolve(null);
+        try {
+          const text = Buffer.isBuffer(result) ? result.toString('utf8') : Buffer.from(result).toString('utf8');
+          resolve(JSON.parse(text));
+        } catch { resolve(null); }
+      });
+    } catch { resolve(null); }
+  });
+}
+
+module.exports = { GAMEMODE, parseHeader, sniffHeader, parseReplay, decodeFrames, readSoloStats };
