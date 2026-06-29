@@ -58,6 +58,18 @@ const SCORE = {
   COMBO_BASE: 0.2,
 };
 
+// ── Lazer "standardised" total (all rulesets) ───────────────────────────────────
+// From osu! ScoreProcessor.ComputeTotalScore:
+//   500000·Accuracy·comboProgress + 500000·Accuracy^5·accuracyProgress + bonus
+// with the combo portion weighting each hit by combo^0.5 (COMBO_EXPONENT). The
+// result is then scaled by the mod multiplier. `acc` is the running quality
+// (0..1), `comboProgress` = Σcombo^0.5 / Σidealcombo^0.5, `accuracyProgress` =
+// judged / total. An FC SS gives exactly 1,000,000 (before the mod multiplier).
+const STD_COMBO_EXPONENT = 0.5;
+function standardisedRaw(acc, comboProgress, accuracyProgress) {
+  return 500000 * acc * comboProgress + 500000 * Math.pow(acc, 5) * accuracyProgress;
+}
+
 // Max achievable combo portion for a full combo of `n` objects: Σ i^COMBO_BASE.
 function maxComboPortion(n) {
   let s = 0;
@@ -123,12 +135,27 @@ function displayAccuracy(counts) {
 }
 
 /**
- * Mode-aware displayed accuracy (0..100). Mania uses the 305 weighting above;
- * osu!/taiko/catch use the classic (300·300s + 100·100s + 50·50s)/(300·total).
- * Counts map: n300=300s, n100=100s, n50=50s, miss=misses (geki/katu unused here).
+ * Mode-aware displayed accuracy (0..100), each ruleset weighted as osu! does:
+ *   mania : 305 weighting (displayAccuracy)
+ *   catch : every caught object counts equally — caught / total. Misses split
+ *           into n200 (tiny-droplet misses) and miss (fruit/large-droplet misses).
+ *   taiko : Great=300, Good(Ok)=150
+ *   std   : 300·300s + 100·100s + 50·50s over 300·total
+ * Counts map: n300=300s/fruits/great, n100=100s/large droplets/ok, n50=50s/small
+ * droplets, n200=katu (tiny-droplet misses, catch only), miss=misses.
  */
 function accuracyFor(mode, counts) {
-  if (mode === 3) return displayAccuracy(counts);
+  if (mode === 3) return displayAccuracy(counts); // mania
+  if (mode === 2) { // catch — caught / total, all objects equal
+    const caught = counts.n300 + counts.n100 + counts.n50;
+    const total = caught + counts.n200 + counts.miss;
+    return total > 0 ? (caught / total) * 100 : 100;
+  }
+  if (mode === 1) { // taiko — Good is worth 150, not 100
+    const total = counts.n300 + counts.n100 + counts.miss;
+    return total > 0 ? ((300 * counts.n300 + 150 * counts.n100) / (300 * total)) * 100 : 100;
+  }
+  // osu!standard
   const total = counts.n300 + counts.n100 + counts.n50 + counts.miss;
   if (total === 0) return 100;
   return ((300 * counts.n300 + 100 * counts.n100 + 50 * counts.n50) / (300 * total)) * 100;
@@ -166,4 +193,6 @@ module.exports = {
   accuracyFor,
   classicDisplayScore,
   maxComboPortion,
+  standardisedRaw,
+  STD_COMBO_EXPONENT,
 };

@@ -15,6 +15,10 @@ const { loadPpMap, createPpCalc, attachPp } = require('./osu/pp');
 const { GAMEMODE, readSoloStats, parseReplay, decodeCursorFrames } = require('./osu/osrParser');
 const { parseStdBeatmap } = require('./osu/stdBeatmap');
 const { judge: judgeStd } = require('./osu/stdJudge');
+const { parseTaikoBeatmap } = require('./osu/taikoBeatmap');
+const { judge: judgeTaiko } = require('./osu/taikoJudge');
+const { parseCatchBeatmap } = require('./osu/catchBeatmap');
+const { judge: judgeCatch } = require('./osu/catchJudge');
 const lzma = require('lzma');
 const { classicDisplayScore } = require('./osu/scoreV2');
 const { modString } = require('./osu/mods');
@@ -101,21 +105,43 @@ function modFlags(g) {
   return { rate: dt ? 1.5 : ht ? 0.75 : 1, hardRock: has('HR', 16), easy: has('EZ', 2) };
 }
 
-// Replace each std ghost's approximated curve with a REAL one: replay the cursor
-// frames against the beatmap (see stdJudge) to get true per-moment score/acc/
-// combo, then rescale to the exact final score. Final numbers stay exact; only
-// the in-between shape comes from the judge (so misses/breaks show at the right
-// moments). Runs in the main process — a one-time per-map cost.
-async function applyStdJudge(ghosts, osuPath, mode) {
-  if (mode !== GAMEMODE.STD || !osuPath || !ghosts.length) return;
+// Count of "basic" judgements (great-able objects) — the object count lazer's
+// classic-score conversion uses (maxBasicJudgements). The mania parser's
+// noteCount equals this for osu!std (circles+sliders+spinners) and mania, but
+// NOT for taiko (must exclude drum-roll ticks/dendens) or catch (counts fruits,
+// not the raw .osu object lines). Using the wrong count makes the classic score
+// off — badly for catch, since the catch formula squares it.
+function basicObjectCount(mode, osuPath, fallback) {
+  try {
+    if (mode === GAMEMODE.TAIKO) return parseTaikoBeatmap(osuPath).notes.length;
+    if (mode === GAMEMODE.CATCH) return parseCatchBeatmap(osuPath).objects.filter((o) => o.kind === 'fruit').length;
+  } catch { /* fall through to the raw count */ }
+  return fallback;
+}
+
+// Per-mode replay judge: parse the beatmap geometry + judge the cursor/key frames.
+const JUDGE = {
+  [GAMEMODE.STD]: { parse: parseStdBeatmap, judge: judgeStd },
+  [GAMEMODE.TAIKO]: { parse: parseTaikoBeatmap, judge: judgeTaiko },
+  [GAMEMODE.CATCH]: { parse: parseCatchBeatmap, judge: judgeCatch },
+};
+
+// Replace each ghost's approximated curve with a REAL one: replay the frames
+// against the beatmap to get true per-moment score/acc/combo, then rescale to
+// the exact final score. Final numbers stay exact; only the in-between shape
+// comes from the judge (so misses/breaks show at the right moments). Runs in the
+// main process — a one-time per-map cost (a few ms per replay).
+async function applyJudge(ghosts, osuPath, mode) {
+  const J = JUDGE[mode];
+  if (!J || !osuPath || !ghosts.length) return;
   let bm;
-  try { bm = parseStdBeatmap(osuPath); } catch { return; }
+  try { bm = J.parse(osuPath); } catch { return; }
   await Promise.all(ghosts.map(async (g) => {
     try {
       const rep = parseReplay(g.replayId); // replayId is the .osr path
       const frames = await decodeCursorFrames(rep.replayData, lzma);
       if (!frames.length) return;
-      const res = judgeStd(bm, frames, { ...modFlags(g), stepMs: config.simStepMs });
+      const res = J.judge(bm, frames, { ...modFlags(g), stepMs: config.simStepMs });
       if (!res.timeline.length || !(res.rawFinal > 0)) return;
       const k = g.finalScore / res.rawFinal;       // pin the curve to the exact final score
       const last = res.timeline[res.timeline.length - 1];
@@ -234,7 +260,7 @@ async function start({ onServersUp } = {}) {
       local = dedupeLocal(local);
       await applyExactStats(local, info.mode); // exact lazer accuracy + slider hits + mods from the .osr
       if (gen !== generation) return;
-      await applyStdJudge(local, info.osuPath, info.mode); // real per-moment std curve from the replay
+      await applyJudge(local, info.osuPath, info.mode); // real per-moment curve (std + taiko) from the replay
       if (gen !== generation) return;
       local = attachPp(local, ppCalc(), beatmap ? beatmap.objects.map((o) => o.time) : []);
       cache.md5 = info.md5; cache.info = info; cache.beatmap = beatmap; cache.local = local; cache.global = [];
@@ -266,18 +292,10 @@ async function start({ onServersUp } = {}) {
     const localNames = new Set(local.map((g) => g.player.toLowerCase()));
     let merged = local.concat(global.filter((g) => !localNames.has(g.player.toLowerCase())));
 
-    // Classic display: convert every (standardised) ghost to lazer's classic
-    // display score, matching the in-game "Classic" setting. Linear for std/taiko
-    // so rescaling the curve to the new final keeps it exact; mania is unchanged.
-    if (relay.clientConfig.scoring === 'classic' && beatmap) {
-      const oc = beatmap.noteCount;
-      merged = merged.map((g) => {
-        const cf = classicDisplayScore(g.finalScore, info.mode, oc);
-        const k = g.finalScore > 0 ? cf / g.finalScore : 1;
-        return { ...g, finalScore: cf, timeline: g.timeline.map((p) => ({ ...p, score: Math.round(p.score * k) })) };
-      });
-    }
-
+    // NOTE: scores stay STANDARDISED here. Classic display is applied per-frame
+    // in the overlay (to ghosts AND your live bar alike) because the catch classic
+    // formula is non-linear — scaling the running curve by a constant would warp
+    // it. Ranking is unaffected (classic is monotonic in standardised).
     merged.sort((a, b) => b.finalScore - a.finalScore);
     const cap = Math.max(config.maxGhosts, wantGlobal ? (relay.clientConfig.globalCount || config.globalCount) : 0) + local.length;
     const trimmed = merged.slice(0, cap);
@@ -290,6 +308,7 @@ async function start({ onServersUp } = {}) {
       scoring: relay.clientConfig.scoring,
       keyCount: beatmap ? beatmap.keyCount : 0,
       noteCount: beatmap ? beatmap.noteCount : 0,
+      basicCount: basicObjectCount(info.mode, info.osuPath, beatmap ? beatmap.noteCount : 0),
       totalHits: beatmap ? beatmap.totalHits : 0,
       breaks: cache.breaks || [],
       ghosts: trimmed.map(ghostPayload),

@@ -204,6 +204,14 @@
   // make "same mods" match almost nothing.
   const normMods = (m) => (m || '').toUpperCase().replace(/NM|CL/g, '').match(/../g)?.sort().join('') || '';
 
+  // Convert a ghost's (standardised) score to the chosen display scale. The catch
+  // classic formula is non-linear, so this is applied PER FRAME to the running
+  // score, not as a constant scale. Your live bar already comes from tosu in osu!'s
+  // display scale, so it's left as-is — set the overlay's Scoring to match osu!.
+  function ghostDisplayScore(s) {
+    return settings.scoring === 'classic' ? classicDisplayScore(s, state.mode, state.objectCount) : s;
+  }
+
   // ── Per-metric helpers for sorting + display ──────────────────────────────────
   // `margin` only damps tiny jitter / exact ties — it must stay well below real
   // gaps. Top scores pack within a few hundred points, so the score margin has to
@@ -293,9 +301,11 @@
       if (idle) { score = g.finalScore; acc = g.finalAcc; combo = g.maxCombo; ratio = ratioOf(g.counts); }
       else { const s = ghostAt(g, t); score = s.score; acc = s.acc; combo = showMax ? g.maxCombo : s.combo; ratio = s.ratio != null ? s.ratio : ratioOf(g.counts); }
       // pp is exact at the end (computed backend-side); mid-race it follows the
-      // ghost's pp curve (partial star rating), not score.
+      // ghost's pp curve (partial star rating), not score. Compute it from the
+      // standardised score, THEN convert the score to the display scale so ghosts
+      // sit on the same scale as your live (tosu) bar.
       const pp = showMax ? (g.finalPp || 0) : ppAt(g, t, score);
-      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score, acc, combo, ratio, pp, isYou: false, global: g.global });
+      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score: ghostDisplayScore(score), acc, combo, ratio, pp, isYou: false, global: g.global });
     }
 
     if (state.playing || state.finished) {
@@ -518,7 +528,7 @@
         state.totalHits = total;
         state.maxComboPortion = maxComboPortionFor(total);
         state.mode = msg.mode != null ? msg.mode : 3;
-        state.objectCount = msg.noteCount || 0;
+        state.objectCount = msg.basicCount || msg.noteCount || 0; // basic judgements (classic conversion)
         if (msg.map) titleEl.textContent = msg.map;
         statusEl.textContent = `${state.ghosts.length} ghost${state.ghosts.length === 1 ? '' : 's'} loaded`;
         break;

@@ -11,6 +11,9 @@ config/runtime.json
 build/icon.png
 build/tray.png
 
+# Sample replays for dev/verification (not shipped)
+samples/
+
 # Editor / tooling
 .claude/
 .vscode/

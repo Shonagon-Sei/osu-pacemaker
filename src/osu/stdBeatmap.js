@@ -231,4 +231,4 @@ function parseStdBeatmap(filePath) {
   };
 }
 
-module.exports = { parseStdBeatmap };
+module.exports = { parseStdBeatmap, buildSliderPath, buildTiming };

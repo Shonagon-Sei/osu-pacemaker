@@ -16,10 +16,10 @@
  * moments. Returns counts too, which the caller verifies against the .osr stats.
  */
 
+const { standardisedRaw, STD_COMBO_EXPONENT } = require('./scoreV2');
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 function judge(bm, frames, opts = {}) {
-  const rate = opts.rate || 1;
   const hr = !!opts.hardRock, ez = !!opts.easy;
   const stepMs = opts.stepMs || 100;
 
@@ -29,12 +29,12 @@ function judge(bm, frames, opts = {}) {
   const followR = radius * 2.4;
   const w300 = 80 - 6 * od, w100 = 140 - 8 * od, w50 = 200 - 10 * od;
 
-  // Frames -> song time (replay clock is real time; song advances at `rate`).
-  // HardRock mirrors the playfield vertically.
+  // Replay frame times are already in map-time (DT/HT plays match with no rate
+  // scaling), so we use them directly. HardRock mirrors the playfield vertically.
   const n = frames.length;
   const ft = new Float64Array(n), fx = new Float64Array(n), fy = new Float64Array(n), fk = new Int32Array(n);
   for (let i = 0; i < n; i++) {
-    ft[i] = frames[i].t * rate;
+    ft[i] = frames[i].t;
     fx[i] = frames[i].x;
     fy[i] = hr ? 384 - frames[i].y : frames[i].y;
     fk[i] = frames[i].k;
@@ -79,7 +79,7 @@ function judge(bm, frames, opts = {}) {
 
   const hit = (t) => { combo++; comboEvents.push({ t, combo }); if (combo > comboMax) comboMax = combo; };
   const brk = (t) => { if (combo) comboEvents.push({ t, combo: 0 }); combo = 0; };
-  const ideal = () => { idealCombo++; comboPortionMax += idealCombo; };
+  const ideal = () => { idealCombo++; comboPortionMax += Math.pow(idealCombo, STD_COMBO_EXPONENT); };
   const tally = (v) => { if (v === 300) counts.n300++; else if (v === 100) counts.n100++; else if (v === 50) counts.n50++; else counts.miss++; };
 
   // Judge a circle/slider-head against the cursor: 300/100/50 or miss. In lazer,
@@ -111,23 +111,23 @@ function judge(bm, frames, opts = {}) {
     }
   }
 
-  // ── build the per-moment curve (ScoreV2-shaped 50/50 combo+accuracy) ─────────
+  // ── build the per-moment curve (lazer standardised ScoreV2) ──────────────────
   comboEvents.sort((a, b) => a.t - b.t);
   accEvents.sort((a, b) => a.t - b.t);
-  const accMax = accEvents.length * 300;
+  const totalMain = accEvents.length; // objects that feed accuracy progress
   const startTime = bm.objects.length ? bm.objects[0].time : 0;
   const endTime = accEvents.length ? accEvents[accEvents.length - 1].t : startTime;
 
-  // Cumulative combo "portion" (Σ combo after each hit) and accuracy progress.
+  // comboPortion weights each hit by combo^0.5; accuracy is base/maxBase quality.
   let ci = 0, comboPortion = 0, curCombo = 0;
   let ai = 0, accAchieved = 0, accResolved = 0;
   const ratioRaw = (t) => {
-    while (ci < comboEvents.length && comboEvents[ci].t <= t) { const e = comboEvents[ci++]; if (e.combo > 0) comboPortion += e.combo; curCombo = e.combo; }
+    while (ci < comboEvents.length && comboEvents[ci].t <= t) { const e = comboEvents[ci++]; if (e.combo > 0) comboPortion += Math.pow(e.combo, STD_COMBO_EXPONENT); curCombo = e.combo; }
     while (ai < accEvents.length && accEvents[ai].t <= t) { accAchieved += accEvents[ai++].value; accResolved++; }
-    const cr = comboPortionMax > 0 ? comboPortion / comboPortionMax : 0;
-    const ar = accMax > 0 ? accAchieved / accMax : 0;
-    const acc = accResolved > 0 ? accAchieved / (accResolved * 300) * 100 : 100;
-    return { raw: 0.5 * cr + 0.5 * ar, combo: curCombo, acc };
+    const comboProgress = comboPortionMax > 0 ? comboPortion / comboPortionMax : 0;
+    const acc = accResolved > 0 ? accAchieved / (accResolved * 300) : 1;
+    const accuracyProgress = totalMain > 0 ? accResolved / totalMain : 0;
+    return { raw: standardisedRaw(acc, comboProgress, accuracyProgress), combo: curCombo, acc: acc * 100 };
   };
 
   const timeline = [];
