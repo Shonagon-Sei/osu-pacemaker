@@ -61,8 +61,41 @@
     fontScale: 1,
     uiScale: 1,
     shadow: 2,
+    opacity: 1,             // overall overlay opacity
     left: 24,
     top: 24,
+    // appearance / skin
+    barBg: '#0c0e18',       // bar background base colour
+    bgOpacity: 0.62,        // bar background opacity
+    barRadius: 8,           // bar corner roundness (px)
+    barAccent: 3,           // left accent bar thickness (px)
+    barGlow: 10,            // glow strength on you / #1 bars (px)
+    barBlur: 3,             // backdrop blur behind bars (px)
+    fontFamily: 'default',  // font preset
+    // background image (skin)
+    bgImage: '',            // data URL of an uploaded image (empty = none)
+    bgFit: 'cover',         // background-size
+    bgImageOpacity: 1,      // 0..1
+    bgImageBlur: 0,         // px
+    bgPosX: 50,             // background-position X (%)
+    bgPosY: 50,             // background-position Y (%)
+    // your-bar background image (skin)
+    youBarImage: '',        // data URL (empty = none)
+    youBarFit: 'cover',     // background-size
+    youBarOpacity: 1,       // 0..1 (blended over your bar tint)
+    youBarPosX: 50,         // background-position X (%)
+    youBarPosY: 50,         // background-position Y (%)
+    customCss: '',          // advanced: raw CSS injected after the stylesheet
+  };
+
+  // Font presets (system fonts, no downloads needed).
+  const FONTS = {
+    default: '"Segoe UI", "Aller", system-ui, sans-serif',
+    rounded: '"Trebuchet MS", "Segoe UI", sans-serif',
+    mono: '"Consolas", "Menlo", monospace',
+    serif: '"Georgia", "Times New Roman", serif',
+    condensed: '"Arial Narrow", "Segoe UI", sans-serif',
+    impact: '"Impact", "Haettenschweiler", sans-serif',
   };
 
   const SCHEMA = [
@@ -92,6 +125,30 @@
     { key: 'fontScale', label: 'Font scale', type: 'range', min: 0.6, max: 2, step: 0.05 },
     { key: 'uiScale', label: 'Overall scale', type: 'range', min: 0.4, max: 3, step: 0.05 },
     { key: 'shadow', label: 'Text shadow', type: 'range', min: 0, max: 6, step: 0.5, unit: 'px' },
+    { key: 'opacity', label: 'Overall opacity', type: 'range', min: 0.1, max: 1, step: 0.05 },
+    { group: 'Appearance' },
+    { key: 'fontFamily', label: 'Font', type: 'select', options: [['default', 'Default'], ['rounded', 'Rounded'], ['mono', 'Monospace'], ['serif', 'Serif'], ['condensed', 'Condensed'], ['impact', 'Impact']] },
+    { key: 'barBg', label: 'Bar background', type: 'color' },
+    { key: 'bgOpacity', label: 'Background opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'barRadius', label: 'Bar roundness', type: 'range', min: 0, max: 24, step: 1, unit: 'px' },
+    { key: 'barAccent', label: 'Accent thickness', type: 'range', min: 0, max: 10, step: 1, unit: 'px' },
+    { key: 'barGlow', label: 'Highlight glow', type: 'range', min: 0, max: 30, step: 1, unit: 'px' },
+    { key: 'barBlur', label: 'Backdrop blur', type: 'range', min: 0, max: 12, step: 1, unit: 'px' },
+    { group: 'Background image' },
+    { key: 'bgImage', label: 'Image', type: 'image' },
+    { key: 'bgFit', label: 'Fit', type: 'select', options: [['cover', 'Cover'], ['contain', 'Contain'], ['100% 100%', 'Stretch'], ['auto', 'Tile / actual size']] },
+    { key: 'bgImageOpacity', label: 'Image opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'bgImageBlur', label: 'Image blur', type: 'range', min: 0, max: 20, step: 1, unit: 'px' },
+    { key: 'bgPosX', label: 'Position X', type: 'range', min: 0, max: 100, step: 1, unit: '%' },
+    { key: 'bgPosY', label: 'Position Y', type: 'range', min: 0, max: 100, step: 1, unit: '%' },
+    { group: 'Your bar', hint: 'A background image just for your row (e.g. your avatar).' },
+    { key: 'youBarImage', label: 'Image', type: 'image' },
+    { key: 'youBarFit', label: 'Fit', type: 'select', options: [['cover', 'Cover'], ['contain', 'Contain'], ['100% 100%', 'Stretch'], ['auto', 'Tile / actual size']] },
+    { key: 'youBarOpacity', label: 'Image opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    { key: 'youBarPosX', label: 'Position X', type: 'range', min: 0, max: 100, step: 1, unit: '%' },
+    { key: 'youBarPosY', label: 'Position Y', type: 'range', min: 0, max: 100, step: 1, unit: '%' },
+    { group: 'Advanced', hint: 'Raw CSS, applied after everything above. Target #overlay, .bar, .rank, .name, .score, etc.' },
+    { key: 'customCss', label: 'Custom CSS', type: 'textarea', placeholder: '.bar { border-radius: 0; }\n.bar.you { box-shadow: 0 0 14px var(--you); }' },
   ];
 
   let settings = loadSettings();
@@ -108,7 +165,52 @@
     const n = parseInt(hex.replace('#', ''), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
-  function darkTint(hex) { const [r, g, b] = rgbOf(hex); return `rgba(${(r * 0.33) | 0},${(g * 0.33) | 0},${(b * 0.33) | 0},0.72)`; }
+  function darkTint(hex, a) { const [r, g, b] = rgbOf(hex); return `rgba(${(r * 0.33) | 0},${(g * 0.33) | 0},${(b * 0.33) | 0},${a})`; }
+
+  // Injected <style> for the user's custom skin CSS (created lazily).
+  let skinStyleEl = null;
+  function applyCustomCss() {
+    if (!skinStyleEl) { skinStyleEl = document.createElement('style'); skinStyleEl.id = 'custom-skin'; document.head.appendChild(skinStyleEl); }
+    skinStyleEl.textContent = settings.customCss || '';
+  }
+
+  // Skin background image element (#overlay-bg), styled from settings.
+  function applyBgImage() {
+    const el = document.getElementById('overlay-bg');
+    if (!el) return;
+    if (settings.bgImage) {
+      el.style.backgroundImage = `url("${settings.bgImage}")`;
+      el.style.backgroundSize = settings.bgFit;
+      el.style.backgroundPosition = `${settings.bgPosX}% ${settings.bgPosY}%`;
+      el.style.opacity = settings.bgImageOpacity;
+      el.style.filter = settings.bgImageBlur > 0 ? `blur(${settings.bgImageBlur}px)` : '';
+      el.style.display = '';
+    } else {
+      el.style.backgroundImage = '';
+      el.style.display = 'none';
+    }
+  }
+
+  // Downscale + encode an uploaded image to a compact data URL (keeps localStorage
+  // small). Backgrounds don't need alpha, so JPEG is plenty.
+  function loadImageFile(file, cb) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 1280;
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        try { cb(c.toDataURL('image/jpeg', 0.85)); } catch { cb(reader.result); }
+      };
+      img.onerror = () => cb('');
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
 
   function applySettings() {
     const r = document.documentElement.style;
@@ -116,13 +218,37 @@
     r.setProperty('--leader', settings.colLeader);
     r.setProperty('--ghost', settings.colGhost);
     r.setProperty('--text', settings.colText);
-    r.setProperty('--bg-bar-you', darkTint(settings.colYou));
-    r.setProperty('--bg-bar-leader', darkTint(settings.colLeader));
+    // Bar background — user colour + opacity (you/leader tints a touch stronger).
+    const bgA = settings.bgOpacity;
+    const [br, bg, bb] = rgbOf(settings.barBg);
+    r.setProperty('--bg-bar', `rgba(${br},${bg},${bb},${bgA})`);
+    r.setProperty('--bg-bar-you', darkTint(settings.colYou, Math.min(1, bgA + 0.1)));
+    r.setProperty('--bg-bar-leader', darkTint(settings.colLeader, Math.min(1, bgA + 0.1)));
+    r.setProperty('--overlay-opacity', settings.opacity);
+    r.setProperty('--bar-radius', `${settings.barRadius}px`);
+    r.setProperty('--bar-accent', `${settings.barAccent}px`);
+    r.setProperty('--bar-glow', `${settings.barGlow}px`);
+    r.setProperty('--bar-blur', `${settings.barBlur}px`);
+    r.setProperty('--font-family', FONTS[settings.fontFamily] || FONTS.default);
+    // Your-bar image: the image, plus a tint "veil" so its opacity is adjustable
+    // (veil alpha = 1 - opacity, using the bar bg colour). No image -> clear veil.
+    if (settings.youBarImage) {
+      r.setProperty('--you-bar-image', `url("${settings.youBarImage}")`);
+      r.setProperty('--you-bar-fit', settings.youBarFit);
+      r.setProperty('--you-bar-pos', `${settings.youBarPosX}% ${settings.youBarPosY}%`);
+      const va = Math.max(0, Math.min(1, 1 - settings.youBarOpacity));
+      r.setProperty('--you-bar-veil', `linear-gradient(rgba(${br},${bg},${bb},${va}),rgba(${br},${bg},${bb},${va}))`);
+    } else {
+      r.setProperty('--you-bar-image', 'none');
+      r.setProperty('--you-bar-veil', 'linear-gradient(transparent,transparent)');
+    }
     r.setProperty('--bar-height', `${settings.barHeight}px`);
     r.setProperty('--bar-gap', `${settings.barGap}px`);
     r.setProperty('--board-width', `${settings.boardWidth}px`);
     r.setProperty('--font-scale', settings.fontScale);
     r.setProperty('--ui-scale', settings.uiScale);
+    applyBgImage();
+    applyCustomCss();
     const s = settings.shadow;
     r.setProperty('--shadow', s <= 0 ? 'none' : `0 0 ${s}px #000, 0 0 ${s * 2}px #000, 0 2px ${s + 3}px rgba(0,0,0,0.9)`);
     positionOverlay();
@@ -379,20 +505,34 @@
   }
 
   // Pick which ranked rows to actually show. In "follow my rank" mode a long
-  // board collapses to: #1, a "⋯ N more ⋯" gap, the N players just above you,
-  // you, and M players just below you. Otherwise it's the top `maxGhosts`.
+  // board collapses to: #1, a "⋯ N more ⋯" gap, then a window around you. The
+  // window keeps a constant size (aheadCount + behindCount + 1) — when you're
+  // near the top or bottom and one side runs out, the shortfall is filled from
+  // the other side, so the row count doesn't shrink (e.g. at #1 you still see
+  // aheadCount+behindCount players below you). Otherwise it's the top `maxGhosts`.
   function windowEntries(ranked) {
     if (!settings.focusMe) return ranked.slice(0, settings.maxGhosts);
+    const n = ranked.length;
     const yi = ranked.findIndex((e) => e.isYou);
     if (yi < 0) return ranked.slice(0, settings.maxGhosts); // not playing -> top N
 
-    const ahead = settings.aheadCount, behind = settings.behindCount;
-    const aboveStart = Math.max(1, yi - ahead);
-    const out = [ranked[0]];                       // always the leader
-    const hidden = aboveStart - 1;                 // ranks between #1 and the window
-    if (hidden > 0) out.push({ id: '__gap__', gap: true, hidden });
-    for (let i = aboveStart; i <= yi; i++) if (i !== 0) out.push(ranked[i]); // above + you
-    for (let i = yi + 1; i <= Math.min(ranked.length - 1, yi + behind); i++) out.push(ranked[i]);
+    const want = settings.aheadCount + settings.behindCount + 1; // total window rows
+    let above = Math.min(settings.aheadCount, yi);              // players above you, capped
+    let below = Math.min(settings.behindCount, n - 1 - yi);    // players below you, capped
+    // Redistribute the shortfall: fill below first, then above (each by availability).
+    let rem = want - 1 - above - below;
+    const addBelow = Math.min(rem, (n - 1 - yi) - below); below += addBelow; rem -= addBelow;
+    const addAbove = Math.min(rem, yi - above); above += addAbove;
+
+    const top = yi - above, bottom = yi + below;
+    const out = [];
+    // Pin #1 (+ a gap) only when the window doesn't already reach the top.
+    if (top > 0) {
+      out.push(ranked[0]);
+      const hidden = top - 1;
+      if (hidden > 0) out.push({ id: '__gap__', gap: true, hidden });
+    }
+    for (let i = Math.max(0, top); i <= bottom; i++) out.push(ranked[i]);
     return out;
   }
 
@@ -570,6 +710,18 @@
       if (item.group) {
         const h = document.createElement('div');
         h.className = 'cfg-group-title'; h.textContent = item.group; body.appendChild(h);
+        if (item.hint) { const hh = document.createElement('div'); hh.className = 'cfg-group-hint'; hh.textContent = item.hint; body.appendChild(hh); }
+        continue;
+      }
+      if (item.type === 'textarea') { // full-width stacked field (custom CSS skin)
+        const wrap = document.createElement('div');
+        wrap.className = 'cfg-textarea-row';
+        const lab = document.createElement('label'); lab.textContent = item.label; wrap.appendChild(lab);
+        const ta = document.createElement('textarea');
+        ta.className = 'cfg-textarea'; ta.spellcheck = false; ta.rows = 6;
+        ta.value = settings[item.key] || ''; ta.placeholder = item.placeholder || '';
+        ta.oninput = () => { settings[item.key] = ta.value; onSettingChanged(item.key); };
+        wrap.appendChild(ta); body.appendChild(wrap);
         continue;
       }
       const row = document.createElement('div');
@@ -589,6 +741,15 @@
       } else if (item.type === 'color') {
         input = document.createElement('input'); input.type = 'color'; input.value = settings[item.key];
         input.oninput = () => { settings[item.key] = input.value; onSettingChanged(item.key); };
+      } else if (item.type === 'image') {
+        input = document.createElement('div'); input.className = 'cfg-image-ctrl';
+        const file = document.createElement('input'); file.type = 'file'; file.accept = 'image/*'; file.style.display = 'none';
+        const btn = document.createElement('button'); btn.className = 'cfg-img-btn'; btn.textContent = settings[item.key] ? 'Change' : 'Choose…';
+        const clr = document.createElement('button'); clr.className = 'cfg-img-clear'; clr.textContent = '✕'; clr.title = 'Remove'; clr.style.display = settings[item.key] ? '' : 'none';
+        btn.onclick = () => file.click();
+        file.onchange = () => { const f = file.files && file.files[0]; if (f) loadImageFile(f, (url) => { if (!url) return; settings[item.key] = url; btn.textContent = 'Change'; clr.style.display = ''; onSettingChanged(item.key); }); file.value = ''; };
+        clr.onclick = () => { settings[item.key] = ''; btn.textContent = 'Choose…'; clr.style.display = 'none'; onSettingChanged(item.key); };
+        input.appendChild(btn); input.appendChild(clr); input.appendChild(file);
       } else { // range
         input = document.createElement('input'); input.type = 'range';
         input.min = item.min; input.max = item.max; input.step = item.step; input.value = settings[item.key];

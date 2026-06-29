@@ -21,6 +21,13 @@
   --font-scale: 1;
   --ui-scale: 1;
 
+  /* Appearance / skin (overwritten from settings) */
+  --bar-radius: 8px;
+  --bar-accent: 3px;
+  --bar-glow: 10px;
+  --bar-blur: 3px;
+  --font-family: "Segoe UI", "Aller", system-ui, sans-serif;
+
   /* Text shadow (rebuilt from settings strength) */
   --shadow: 0 0 2px #000, 0 0 4px #000, 0 2px 5px rgba(0, 0, 0, 0.9);
 }
@@ -34,7 +41,7 @@ html, body {
   height: 100%;
   background: transparent;        /* critical for OBS browser-source compositing */
   overflow: hidden;
-  font-family: "Segoe UI", "Aller", system-ui, sans-serif;
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -47,6 +54,7 @@ html, body {
   transform: scale(var(--ui-scale));
   transform-origin: top left;
   font-size: calc(1em * var(--font-scale));
+  opacity: var(--overlay-opacity, 1);
   transition: opacity 0.35s ease;
 }
 
@@ -125,6 +133,17 @@ html, body {
 }
 #config-btn:hover { background: rgba(255, 255, 255, 0.25); }
 
+/* Skin background image — behind the bars, framed to the board, never interactive. */
+#overlay-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: var(--bar-radius);
+  pointer-events: none;
+}
+
 /* Board is a positioning context; bars are absolutely placed and translated.
    Height is set instantly (not transitioned): the Electron shell sizes its
    window tight to the board each frame, and an animated height would briefly
@@ -144,10 +163,10 @@ html, body {
   align-items: center;
   gap: 10px;
   padding: 0 12px 0 8px;
-  border-radius: 8px;
+  border-radius: var(--bar-radius);
   background: var(--bg-bar);
-  backdrop-filter: blur(3px);
-  border-left: 3px solid transparent;
+  backdrop-filter: blur(var(--bar-blur));
+  border-left: var(--bar-accent) solid transparent;
   transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
               opacity 0.25s ease,
               background 0.25s ease,
@@ -161,24 +180,32 @@ html, body {
 .bar.leader {
   background: var(--bg-bar-leader);
   border-left-color: var(--leader);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--leader) 45%, transparent),
+  box-shadow: 0 0 var(--bar-glow) color-mix(in srgb, var(--leader) 45%, transparent),
               inset 0 0 0 1px color-mix(in srgb, var(--leader) 25%, transparent);
 }
 .bar.leader .rank { color: var(--leader); }
 
-/* Your bar — always tinted so you can find yourself at a glance. */
+/* Your bar — always tinted so you can find yourself at a glance. Optional skin
+   image sits between the tint veil (top, for opacity) and the base tint (bottom). */
 .bar.you {
-  background: var(--bg-bar-you);
+  background:
+    var(--you-bar-veil, linear-gradient(transparent, transparent)),
+    var(--you-bar-image, none) var(--you-bar-pos, center) / var(--you-bar-fit, cover) no-repeat,
+    var(--bg-bar-you);
   border-left-color: var(--you);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--you) 45%, transparent),
+  box-shadow: 0 0 var(--bar-glow) color-mix(in srgb, var(--you) 45%, transparent),
               inset 0 0 0 1px color-mix(in srgb, var(--you) 25%, transparent);
 }
 .bar.you .rank,
 .bar.you .score { color: var(--you); }
 
-/* You AND #1: leader background, your border + accents. */
+/* You AND #1: keep your skin image (veil + image on top), leader tint as the
+   base, with your border/accents. */
 .bar.you.leader {
-  background: var(--bg-bar-leader);
+  background:
+    var(--you-bar-veil, linear-gradient(transparent, transparent)),
+    var(--you-bar-image, none) var(--you-bar-pos, center) / var(--you-bar-fit, cover) no-repeat,
+    var(--bg-bar-leader);
   border-left-color: var(--you);
 }
 
@@ -413,6 +440,36 @@ html, body {
   text-transform: uppercase;
   color: #7f8aa3;
 }
+.cfg-group-hint {
+  margin: -2px 0 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #6f7a93;
+}
+.cfg-textarea-row { display: flex; flex-direction: column; gap: 5px; padding: 5px 0; }
+.cfg-textarea-row label { color: #c9d1e3; }
+.cfg-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  background: #15171f;
+  color: #d7e0f5;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cfg-textarea:focus { outline: none; border-color: var(--you); }
+.cfg-image-ctrl { display: flex; gap: 6px; align-items: center; }
+.cfg-img-btn, .cfg-img-clear {
+  background: #2a2f44; color: #e7ebf5;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px;
+  padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px;
+}
+.cfg-img-clear { padding: 4px 8px; color: #e0463f; }
+.cfg-img-btn:hover, .cfg-img-clear:hover { background: #353c56; }
 .cfg-row {
   display: flex;
   align-items: center;
