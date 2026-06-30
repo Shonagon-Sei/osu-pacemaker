@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
 const log = require('../util/logger');
+const { modSpeed } = require('../osu/mods');
 
 /**
  * Connects to tosu (https://tosu.app) and normalises its v2 firehose into the
@@ -165,6 +166,9 @@ class TosuClient extends EventEmitter {
         combo: combo.current || 0,
         maxCombo: combo.max || 0,
         mods: (play.mods && play.mods.name) || '', // your current mods (for same-mods filter)
+        // Speed multiplier for the same-mods filter: prefer the mod array (carries
+        // lazer's custom rate), fall back to the acronym name.
+        rate: modSpeed(play.mods && Array.isArray(play.mods.array) ? play.mods.array : (play.mods && play.mods.name) || 0),
         name: play.playerName || 'You',
         hits: {
           n300: h['300'] || 0,

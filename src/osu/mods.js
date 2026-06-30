@@ -104,4 +104,31 @@ function modString(mods) {
   return out.length ? out.join('') : 'NM';
 }
 
-module.exports = { MODS, rateFromMods, effectiveOD, modMultiplier, modString };
+/**
+ * Speed multiplier of a play, honouring lazer's custom rate. Accepts a lazer mod
+ * array ([{ acronym, settings }] or ['DT']), a numeric bitmask, or an acronym
+ * string. DT/NC default to 1.5x and HT/DC to 0.75x, but a `speed_change` setting
+ * (lazer's adjustable rate) overrides that. 1.0 when no speed mod is present.
+ */
+function modSpeed(mods) {
+  if (Array.isArray(mods)) {
+    for (const m of mods) {
+      const a = (typeof m === 'string' ? m : (m && m.acronym) || '').toUpperCase();
+      const sc = (m && typeof m === 'object' && m.settings && +m.settings.speed_change) || 0;
+      if (a === 'DT' || a === 'NC') return sc || 1.5;
+      if (a === 'HT' || a === 'DC') return sc || 0.75;
+    }
+    return 1;
+  }
+  if (typeof mods === 'number') {
+    if (mods & (MODS.DoubleTime | MODS.Nightcore)) return 1.5;
+    if (mods & MODS.HalfTime) return 0.75;
+    return 1;
+  }
+  const s = String(mods || '').toUpperCase();
+  if (/DT|NC/.test(s)) return 1.5;
+  if (/HT|DC/.test(s)) return 0.75;
+  return 1;
+}
+
+module.exports = { MODS, rateFromMods, effectiveOD, modMultiplier, modString, modSpeed };

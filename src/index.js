@@ -21,7 +21,7 @@ const { parseCatchBeatmap } = require('./osu/catchBeatmap');
 const { judge: judgeCatch } = require('./osu/catchJudge');
 const lzma = require('lzma');
 const { classicDisplayScore } = require('./osu/scoreV2');
-const { modString } = require('./osu/mods');
+const { modString, modSpeed } = require('./osu/mods');
 
 /**
  * Orchestrator.
@@ -199,6 +199,7 @@ async function start({ onServersUp } = {}) {
       replayId: g.replayId,
       player: g.player,
       mods: g.global ? g.mods : (g.modsDisplay || modString(g.mods)),
+      rate: modSpeed(g.modsExact || g.mods), // speed multiplier (honours lazer custom rate)
       global: !!g.global,
       country: g.country || '',
       finalScore: g.finalScore,

@@ -307,7 +307,7 @@
     lastSwap: new Map(),
     lastTime: 0,
     lastTimeAt: 0,
-    you: { name: 'You', score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, mods: '', prevCombo: 0, comboPortion: 0 },
+    you: { name: 'You', score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, mods: '', rate: 1, prevCombo: 0, comboPortion: 0 },
   };
 
   // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -325,10 +325,18 @@
   const bars = new Map();
 
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
-  // Normalise a mod string for comparison. CL (Classic) is dropped because most
-  // global scores carry it while a fresh lazer play does not — comparing it would
-  // make "same mods" match almost nothing.
-  const normMods = (m) => (m || '').toUpperCase().replace(/NM|CL/g, '').match(/../g)?.sort().join('') || '';
+  // Comparison key for the "same mods only" filter:
+  //  • DT≡NC and HT≡DC (mapped to DT / HT)
+  //  • AT, CL, MR, MU (and NM) ignored — they don't change the challenge meaningfully
+  //  • speed mods carry the rate, so a custom DT/HT speed only matches the same speed
+  const MODS_IGNORED = new Set(['NM', 'CL', 'AT', 'MR', 'MU']);
+  function modKey(modsStr, rate) {
+    let acr = ((modsStr || '').toUpperCase().match(/../g) || [])
+      .filter((a) => !MODS_IGNORED.has(a))
+      .map((a) => (a === 'NC' ? 'DT' : a === 'DC' ? 'HT' : a));
+    acr = [...new Set(acr)].sort();
+    return acr.join('') + '@' + (Math.round((rate || 1) * 100) / 100); // rate distinguishes custom DT/HT speeds
+  }
 
   // Convert a ghost's (standardised) score to the chosen display scale. The catch
   // classic formula is non-linear, so this is applied PER FRAME to the running
@@ -402,8 +410,8 @@
   // correct even when you're rank 40 of 50).
   function visibleGhosts() {
     if (settings.sameModsOnly && (state.playing || state.finished)) {
-      const mine = normMods(state.you.mods);
-      return state.ghosts.filter((g) => normMods(g.mods) === mine);
+      const mine = modKey(state.you.mods, state.you.rate);
+      return state.ghosts.filter((g) => modKey(g.mods, g.rate) === mine);
     }
     return state.ghosts;
   }
@@ -648,6 +656,7 @@
     state.you.combo = c;
     state.you.maxCombo = live.maxCombo || Math.max(state.you.maxCombo, c);
     state.you.mods = live.mods || '';
+    state.you.rate = live.rate || 1;
     state.you.name = live.name || 'You';
     state.paused = !!live.paused;
     state.lastTime = live.time;
