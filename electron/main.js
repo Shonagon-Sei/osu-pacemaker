@@ -140,19 +140,24 @@ function checkForUpdates() {
 
 app.whenReady().then(async () => {
   try {
-    // Open the overlay the moment the servers are up (shows "Initializing…")
-    // while the replay scan finishes in the background.
-    backend = await require('../src/index').start({ onServersUp: (httpPort) => createWindow(httpPort) });
+    // Bring up the whole UI — window, tray, shortcuts, updater — the moment the
+    // servers are up, BEFORE the (potentially long) replay scan runs. Doing this
+    // after start() resolves would leave the tray absent and the unlock shortcut
+    // unregistered for the entire scan, so the app looked frozen on first launch.
+    backend = await require('../src/index').start({
+      onServersUp: (httpPort) => {
+        createWindow(httpPort);
+        createTray();
+        globalShortcut.register('CommandOrControl+Shift+O', () => app.quit());
+        globalShortcut.register('CommandOrControl+Shift+L', () => setLocked(!locked));
+        initUpdates();
+      },
+    });
   } catch (e) {
     dialog.showErrorBox('osu! Pacemaker failed to start', String(e && e.stack ? e.stack : e));
     app.quit();
     return;
   }
-  createTray();
-  initUpdates();
-
-  globalShortcut.register('CommandOrControl+Shift+O', () => app.quit());
-  globalShortcut.register('CommandOrControl+Shift+L', () => setLocked(!locked));
 });
 
 app.on('second-instance', () => { if (win) win.show(); });

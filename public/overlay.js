@@ -327,12 +327,15 @@
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
   // Comparison key for the "same mods only" filter:
   //  • DT≡NC and HT≡DC (mapped to DT / HT)
-  //  • AT, CL, MR, MU (and NM) ignored — they don't change the challenge meaningfully
+  //  • NM, CL, AT, MR, MU, AC, SD, PF always ignored — they don't change the challenge
+  //  • in mania, HD, FI, CO, FL are cosmetic too, so ignore those there as well
   //  • speed mods carry the rate, so a custom DT/HT speed only matches the same speed
-  const MODS_IGNORED = new Set(['NM', 'CL', 'AT', 'MR', 'MU']);
-  function modKey(modsStr, rate) {
+  const MODS_IGNORED = new Set(['NM', 'CL', 'AT', 'MR', 'MU', 'AC', 'SD', 'PF']);
+  const MODS_IGNORED_MANIA = new Set(['HD', 'FI', 'CO', 'FL']);
+  function modKey(modsStr, rate, mode) {
+    const maniaIgnore = mode === 3;
     let acr = ((modsStr || '').toUpperCase().match(/../g) || [])
-      .filter((a) => !MODS_IGNORED.has(a))
+      .filter((a) => !MODS_IGNORED.has(a) && !(maniaIgnore && MODS_IGNORED_MANIA.has(a)))
       .map((a) => (a === 'NC' ? 'DT' : a === 'DC' ? 'HT' : a));
     acr = [...new Set(acr)].sort();
     return acr.join('') + '@' + (Math.round((rate || 1) * 100) / 100); // rate distinguishes custom DT/HT speeds
@@ -410,8 +413,8 @@
   // correct even when you're rank 40 of 50).
   function visibleGhosts() {
     if (settings.sameModsOnly && (state.playing || state.finished)) {
-      const mine = modKey(state.you.mods, state.you.rate);
-      return state.ghosts.filter((g) => modKey(g.mods, g.rate) === mine);
+      const mine = modKey(state.you.mods, state.you.rate, state.mode);
+      return state.ghosts.filter((g) => modKey(g.mods, g.rate, state.mode) === mine);
     }
     return state.ghosts;
   }

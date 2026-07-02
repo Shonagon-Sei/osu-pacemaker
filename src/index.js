@@ -187,8 +187,13 @@ async function start({ onServersUp } = {}) {
   log.info(`Simulation pool: ${config.simWorkers} worker(s), step ${config.simStepMs}ms.`);
 
   const index = new ReplayIndex(config);
-  await index.build();
-  relay.sendStatus({ phase: 'init', note: 'Waiting for a beatmap…' });
+  // First launch scans your whole replay store, which can take a while. Report
+  // live progress so the overlay shows it's working (and, thanks to the periodic
+  // yields inside build(), the app stays interactive while it runs).
+  await index.build((n) =>
+    relay.sendStatus({ phase: 'init', note: `Scanning replays… (${n.toLocaleString()} files)` }));
+  // tosu hasn't connected yet — assume it's not running until proven otherwise.
+  relay.sendStatus({ phase: 'init', note: 'Waiting for tosu…' });
 
   const tosu = new TosuClient(config);
   let generation = 0;
@@ -317,11 +322,37 @@ async function start({ onServersUp } = {}) {
     relay.sendStatus({ phase: 'ready', map: info.title, ghostCount: trimmed.length });
   }
 
+  // ── post-play replay refresh ────────────────────────────────────────────────
+  // When a play ends, osu! writes the just-finished attempt to disk as a NEW
+  // replay. The board otherwise only rescans on a genuine map change, so that
+  // fresh score wouldn't show up until you reselected the map. Re-scan the store
+  // and, if a new replay for the current map actually appeared, rebuild the board
+  // in place so the play you just finished joins the ghosts immediately.
+  let refreshTimer = null;
+  async function refreshAfterPlay(attempt) {
+    refreshTimer = null;
+    if (!cache.info || !cache.md5) return;
+    const before = index.lookup(cache.md5).length;
+    try { await index.build(); }
+    catch (e) { log.warn('post-play replay scan failed:', e.message); }
+    const after = index.lookup(cache.md5).length;
+    if (after > before) {
+      log.info(`New replay for current map (${before} → ${after}); refreshing board.`);
+      // reuseLocal=false forces a fresh local simulation that includes the new
+      // .osr; build() doesn't clear the board, so the ghost list updates in place.
+      build(cache.info, false).catch((e) => log.err('post-play rebuild error:', e.message));
+    } else if (attempt < 3) {
+      // The .osr can lag the play ending by a moment (esp. lazer's async import).
+      refreshTimer = setTimeout(() => refreshAfterPlay(attempt + 1), 1200);
+    }
+  }
+
   tosu.on('beatmap', (info) => {
     // Ignore a duplicate report of the map we're already on (tosu can re-emit) —
     // rebuilding here would clear the board and reset an in-progress play.
     if (info.md5 === cache.md5 && cache.local) return;
     log.info(`Map selected: ${info.title || '(unknown)'}  [id ${info.beatmapId}, md5 ${info.md5.slice(0, 8)}…]`);
+    if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; } // drop a pending post-play refresh
     relay.clearGhosts(); // genuine map change -> reset the board
     build(info, false).catch((e) => log.err('build error:', e.message));
   });
@@ -331,8 +362,23 @@ async function start({ onServersUp } = {}) {
     if (cache.info) build(cache.info, true).catch((e) => log.err('rebuild error:', e.message));
   });
 
-  tosu.on('state', ({ state }) => relay.sendStatus({ phase: 'state', state }));
+  let prevGameState = null;
+  tosu.on('state', ({ state }) => {
+    relay.sendStatus({ phase: 'state', state });
+    // Left gameplay (2 -> anything else): a pass/fail just wrote a new replay.
+    // Schedule a scan; the count check inside refreshAfterPlay makes a plain quit
+    // (no new replay) a cheap no-op that won't needlessly rebuild the board.
+    if (prevGameState === 2 && state !== 2) {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => refreshAfterPlay(0), 800);
+    }
+    prevGameState = state;
+  });
   tosu.on('live', (live) => relay.sendLive(live));
+  // Reflect the tosu connection in the status line so a cold start without tosu
+  // running shows "Waiting for tosu…" instead of a stale "loading" message.
+  tosu.on('open', () => { if (!cache.md5) relay.sendStatus({ phase: 'init', note: 'Waiting for a beatmap…' }); });
+  tosu.on('close', () => relay.sendStatus({ phase: 'init', note: 'Waiting for tosu…' }));
   tosu.connect();
 
   // Handle to tear everything down (used by the Electron app on quit).

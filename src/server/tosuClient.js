@@ -64,6 +64,7 @@ class TosuClient extends EventEmitter {
     ws.on('open', () => {
       this.backoff = 1000;
       log.ok('tosu connected.');
+      this.emit('open');
     });
 
     ws.on('message', (buf) => {
@@ -79,6 +80,7 @@ class TosuClient extends EventEmitter {
     ws.on('close', () => {
       if (this.closed) return;
       log.warn(`tosu disconnected; retrying in ${this.backoff}ms`);
+      this.emit('close');
       setTimeout(() => this._open(), this.backoff);
       this.backoff = Math.min(this.backoff * 2, 15000);
     });

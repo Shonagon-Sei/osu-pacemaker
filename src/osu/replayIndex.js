@@ -58,8 +58,19 @@ class ReplayIndex {
     }
   }
 
-  /** Build (or refresh) the index across all configured sources. */
-  async build() {
+  /**
+   * Build (or refresh) the index across all configured sources.
+   *
+   * `onProgress(count)` (optional) is called periodically with the number of
+   * files examined so callers can surface a live "still scanning" status.
+   *
+   * The scan is I/O-heavy and, on a cold cache, sniffs the entire lazer store —
+   * so we hand control back to the event loop every so often (a real macrotask
+   * yield, not just a microtask). Without this the whole process — including the
+   * Electron main process that owns the tray, global shortcuts and the overlay's
+   * websocket — freezes solid until the scan finishes.
+   */
+  async build(onProgress) {
     const cache = this._loadCache();
     const cachedReplays = new Map();
     if (cache) for (const r of cache.replays) cachedReplays.set(r.p, r);
@@ -69,11 +80,20 @@ class ReplayIndex {
     const lazerSeen = new Set();
     const stats = { parsed: 0, reused: 0, sniffed: 0 };
 
+    let processed = 0;
+    const yieldMaybe = async () => {
+      // Every 256 files: report progress and let pending I/O / IPC / shortcuts run.
+      if ((++processed & 0xff) === 0) {
+        if (onProgress) { try { onProgress(processed); } catch { /* ignore */ } }
+        await new Promise((r) => setImmediate(r));
+      }
+    };
+
     for (const src of this.config.sources) {
       if (src.type === 'stable') {
-        await this._buildStable(src, cachedReplays, replays, stats);
+        await this._buildStable(src, cachedReplays, replays, stats, yieldMaybe);
       } else if (src.type === 'lazer') {
-        await this._buildLazer(src, cachedReplays, cachedSeen, replays, lazerSeen, stats);
+        await this._buildLazer(src, cachedReplays, cachedSeen, replays, lazerSeen, stats, yieldMaybe);
       }
     }
 
@@ -89,12 +109,13 @@ class ReplayIndex {
   }
 
   // ── stable: Data\r\*.osr, cached by mtime+size ─────────────────────────────
-  async _buildStable(src, cachedReplays, out, stats) {
+  async _buildStable(src, cachedReplays, out, stats, yieldMaybe) {
     const dir = src.replayDir;
     if (!fs.existsSync(dir)) return;
 
     const names = (await fs.promises.readdir(dir)).filter((f) => f.toLowerCase().endsWith('.osr'));
     for (const name of names) {
+      await yieldMaybe();
       const full = path.join(dir, name);
       let st;
       try { st = await fs.promises.stat(full); } catch { continue; }
@@ -116,7 +137,7 @@ class ReplayIndex {
   }
 
   // ── lazer: walk files\ store, sniff unknown blobs ──────────────────────────
-  async _buildLazer(src, cachedReplays, cachedSeen, out, seenOut, stats) {
+  async _buildLazer(src, cachedReplays, cachedSeen, out, seenOut, stats, yieldMaybe) {
     const dir = src.filesDir;
     if (!fs.existsSync(dir)) {
       log.warn('Lazer files store missing:', dir);
@@ -125,6 +146,7 @@ class ReplayIndex {
 
     let scanned = 0;
     for await (const full of walk(dir)) {
+      await yieldMaybe();
       seenOut.add(full);
 
       const cached = cachedReplays.get(full);
