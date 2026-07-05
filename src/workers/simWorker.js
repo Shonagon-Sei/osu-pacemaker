@@ -35,16 +35,23 @@ parentPort.on('message', async (job) => {
     let maxCombo = sim.maxCombo;
     let counts = sim.counts;
     let scoreScale = 1;
+    let isClassic = false;
 
-    if (isLazer && replay.stableScore > 0) {
-      finalScore = replay.stableScore; // already includes the mod multiplier
+    if (replay.stableScore > 0) {
+      // Trust the header's exact final score, counts and combo (both clients store
+      // them); the simulation only supplies the in-between curve shape, scaled to
+      // land on the real final. Lazer's total is standardised ScoreV2; stable's is
+      // ScoreV1 — a different scale — so tag stable ghosts `classic` and let the
+      // overlay show them verbatim, matching a stable player's live (ScoreV1) bar.
+      finalScore = replay.stableScore;
       counts = replay.counts;
       finalAcc = +displayAccuracy(replay.counts).toFixed(2);
       maxCombo = replay.maxCombo;
       scoreScale = sim.finalScore > 0 ? finalScore / sim.finalScore : 1;
+      isClassic = !isLazer;
     } else {
-      // Stable replay: our simulated ScoreV2 has no mod multiplier — apply it so
-      // modded stable plays sit on the same standardised scale as the rest.
+      // No usable header score: keep the simulated ScoreV2, applying the mod
+      // multiplier so modded plays sit on the same standardised scale as the rest.
       scoreScale = modMultiplier(replay.mods, beatmap.mode);
       finalScore = Math.round(finalScore * scoreScale);
     }
@@ -81,6 +88,7 @@ parentPort.on('message', async (job) => {
         player: replay.player || 'Ghost',
         mods: replay.mods,
         lazer: isLazer, // pp uses lazer vs stable scoring to match the replay's origin
+        classic: isClassic, // stable ScoreV1 scale — overlay shows it verbatim
         exact: isLazer && replay.stableScore > 0,
         stableScore: replay.stableScore,
         finalScore,
