@@ -75,6 +75,11 @@ function judge(bm, frames, opts = {}) {
   const counts = { n300: 0, n100: 0, n50: 0, miss: 0 };
   const comboEvents = []; // { t, combo }   (combo after a successful hit; 0 on break)
   const accEvents = [];   // { t, value }   (per main object: 0/50/100/300)
+  // Combo-scaled hits for the exact ScoreV1 curve: { t, base, comboBefore }. base
+  // is the hit's 300/100/50 value; comboBefore is the combo just before this hit
+  // (it already includes slider-tick increments). Ticks/tails aren't combo-scaled
+  // in ScoreV1, so they're omitted here (they only advance `combo`).
+  const scoreEvents = [];
   let comboMax = 0, idealCombo = 0, comboPortionMax = 0;
 
   const hit = (t) => { combo++; comboEvents.push({ t, combo }); if (combo > comboMax) comboMax = combo; };
@@ -86,7 +91,7 @@ function judge(bm, frames, opts = {}) {
   // these (circles + slider heads) are exactly what feed great/ok/meh/miss.
   const judgeHit = (time, pos) => {
     const p = findPress(time - w50, time + w50, pos.x, pos.y, radius);
-    if (p) { p.used = true; const dt = Math.abs(p.t - time); const v = dt <= w300 ? 300 : dt <= w100 ? 100 : 50; tally(v); hit(p.t); accEvents.push({ t: p.t, value: v }); }
+    if (p) { p.used = true; const dt = Math.abs(p.t - time); const v = dt <= w300 ? 300 : dt <= w100 ? 100 : 50; tally(v); const cb = combo; hit(p.t); accEvents.push({ t: p.t, value: v }); scoreEvents.push({ t: p.t, base: v, comboBefore: cb }); }
     else { tally(0); brk(time + w50); accEvents.push({ t: time + w50, value: 0 }); }
   };
 
@@ -107,7 +112,7 @@ function judge(bm, frames, opts = {}) {
       }
     } else if (o.kind === 'spinner') {
       ideal();
-      tally(300); hit(o.endTime); accEvents.push({ t: o.endTime, value: 300 }); // assume cleared
+      tally(300); const cb = combo; hit(o.endTime); accEvents.push({ t: o.endTime, value: 300 }); scoreEvents.push({ t: o.endTime, base: 300, comboBefore: cb }); // assume cleared
     }
   }
 
@@ -142,6 +147,7 @@ function judge(bm, frames, opts = {}) {
     counts, maxCombo: comboMax,
     finalAcc: timeline.length ? timeline[timeline.length - 1].acc : 100,
     rawFinal: end.raw, // for rescaling the curve to the exact final score
+    scoreEvents,       // combo-scaled hits, for the exact ScoreV1 (stable) curve
     startTime, endTime, stepMs, timeline,
   };
 }

@@ -25,7 +25,7 @@ class RelayServer extends EventEmitter {
     this.lastGhosts = null;
     this.lastStatus = { type: 'status', phase: 'idle' };
     // Latest overlay preferences that affect what the backend produces.
-    this.clientConfig = { includeGlobal: false, globalCount: 50, scoring: 'standardised' };
+    this.clientConfig = { includeGlobal: false, globalCount: 50, scoring: 'standardised', bothInstalls: false };
   }
 
   start() {
@@ -50,10 +50,12 @@ class RelayServer extends EventEmitter {
       includeGlobal: !!msg.includeGlobal,
       globalCount: Math.max(1, Math.min(100, msg.globalCount || 50)),
       scoring: msg.scoring === 'classic' ? 'classic' : 'standardised',
+      bothInstalls: !!msg.bothInstalls,
     };
     const changed = next.includeGlobal !== this.clientConfig.includeGlobal ||
                     next.globalCount !== this.clientConfig.globalCount ||
-                    next.scoring !== this.clientConfig.scoring;
+                    next.scoring !== this.clientConfig.scoring ||
+                    next.bothInstalls !== this.clientConfig.bothInstalls;
     this.clientConfig = next;
     if (changed) this.emit('clientConfig', next);
   }

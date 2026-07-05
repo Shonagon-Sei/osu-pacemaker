@@ -43,6 +43,9 @@ function judge(bm, frames, opts = {}) {
   let combo = 0, comboMax = 0, comboPortionMax = 0, ideal = 0;
   const counts = { n300: 0, n100: 0, n50: 0, katu: 0, miss: 0 };
   const comboEvents = [], accEvents = []; // accEvents: { t, caught:0|1 }
+  // Combo-scaled catches for the exact ScoreV1 curve: { t, base, comboBefore }.
+  // fruit=300, droplet=100; tiny droplets aren't combo-scaled (accuracy only).
+  const scoreEvents = [];
   const hit = (t) => { combo++; comboEvents.push({ t, combo }); if (combo > comboMax) comboMax = combo; };
   const brk = (t) => { if (combo) comboEvents.push({ t, combo: 0 }); combo = 0; };
 
@@ -50,11 +53,11 @@ function judge(bm, frames, opts = {}) {
     const caught = Math.abs(catcherAt(o.time) - o.x) <= halfWidth;
     if (o.kind === 'fruit') {
       ideal++; comboPortionMax += Math.pow(ideal, STD_COMBO_EXPONENT);
-      if (caught) { counts.n300++; hit(o.time); } else { counts.miss++; brk(o.time); }
+      if (caught) { counts.n300++; const cb = combo; hit(o.time); scoreEvents.push({ t: o.time, base: 300, comboBefore: cb }); } else { counts.miss++; brk(o.time); }
       accEvents.push({ t: o.time, caught: caught ? 1 : 0 });
     } else if (o.kind === 'droplet') {
       ideal++; comboPortionMax += Math.pow(ideal, STD_COMBO_EXPONENT);
-      if (caught) { counts.n100++; hit(o.time); } else { counts.miss++; brk(o.time); }
+      if (caught) { counts.n100++; const cb = combo; hit(o.time); scoreEvents.push({ t: o.time, base: 100, comboBefore: cb }); } else { counts.miss++; brk(o.time); }
       accEvents.push({ t: o.time, caught: caught ? 1 : 0 });
     } else { // tiny droplet — accuracy only, no combo
       if (caught) counts.n50++; else counts.katu++;
@@ -84,7 +87,7 @@ function judge(bm, frames, opts = {}) {
   const end = sample(endTime + 1);
   timeline.push({ t: endTime, raw: end.raw, acc: end.acc, combo: end.combo });
 
-  return { counts, maxCombo: comboMax, finalAcc: end.acc, rawFinal: end.raw, startTime, endTime, stepMs, timeline };
+  return { counts, maxCombo: comboMax, finalAcc: end.acc, rawFinal: end.raw, scoreEvents, startTime, endTime, stepMs, timeline };
 }
 
 module.exports = { judge };

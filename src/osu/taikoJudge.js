@@ -50,6 +50,9 @@ function judge(bm, frames, opts = {}) {
   let combo = 0, comboMax = 0, comboPortionMax = 0, ideal = 0;
   const counts = { n300: 0, n100: 0, miss: 0 };
   const comboEvents = [], accEvents = []; // accEvents: { t, value } value 300/150/0
+  // Combo-scaled note hits for the exact ScoreV1 curve: { t, base, comboBefore }.
+  // Drum-roll ticks / dendens aren't combo-scaled, so they only advance `combo`.
+  const scoreEvents = [];
   const hit = (t) => { combo++; comboEvents.push({ t, combo }); if (combo > comboMax) comboMax = combo; };
   const brk = (t) => { if (combo) comboEvents.push({ t, combo: 0 }); combo = 0; };
   const need = () => { ideal++; comboPortionMax += Math.pow(ideal, STD_COMBO_EXPONENT); };
@@ -70,8 +73,10 @@ function judge(bm, frames, opts = {}) {
         const dt = Math.abs(p.t - e.t);
         const v = dt <= great ? 300 : 150; // taiko: GREAT=300, GOOD scores 150
         if (v === 300) counts.n300++; else counts.n100++;
+        const cb = combo;
         hit(e.t);
         accEvents.push({ t: e.t, value: v });
+        scoreEvents.push({ t: e.t, base: v, comboBefore: cb });
         if (e.big) { const p2 = findPress(p.t - 30, p.t + 30, e.kat); if (p2) p2.used = true; } // finisher double
       } else {
         counts.miss++; brk(e.t + good); accEvents.push({ t: e.t + good, value: 0 });
@@ -105,7 +110,7 @@ function judge(bm, frames, opts = {}) {
   const end = sample(endTime + 1);
   timeline.push({ t: endTime, raw: end.raw, acc: +end.acc.toFixed(2), combo: end.combo });
 
-  return { counts, maxCombo: comboMax, finalAcc: timeline.length ? timeline[timeline.length - 1].acc : 100, rawFinal: end.raw, startTime, endTime, stepMs, timeline };
+  return { counts, maxCombo: comboMax, finalAcc: timeline.length ? timeline[timeline.length - 1].acc : 100, rawFinal: end.raw, scoreEvents, startTime, endTime, stepMs, timeline };
 }
 
 module.exports = { judge };

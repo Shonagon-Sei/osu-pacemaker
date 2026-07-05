@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const { config, validate } = require('../config');
 const log = require('./util/logger');
 const { ReplayIndex } = require('./osu/replayIndex');
@@ -126,6 +127,35 @@ const JUDGE = {
   [GAMEMODE.CATCH]: { parse: parseCatchBeatmap, judge: judgeCatch },
 };
 
+// Build a function score(t) that reconstructs the EXACT osu!stable ScoreV1 curve
+// from a judge's combo-scaled hits, pinned to the replay's real final score.
+//
+// ScoreV1 adds, per combo-scaled hit: base + base·comboBefore·(D·M/25), where D/M
+// are the map's difficulty & mod multipliers. Summed to time t this is
+//   score(t) = A(t) + C·B(t),   A = Σ base,  B = Σ base·comboBefore,  C = D·M/25.
+// We never need D or M: with the exact final known, C = (final − A_total)/B_total.
+// B carries the super-linear Σ(base·combo) growth that a standardised curve lacks,
+// which is what was causing the mid-race drift. (Flat slider-tick/roll points fold
+// into C — a ~2% linear term — so the shape stays faithful.)
+function classicScoreSampler(res, finalScore) {
+  const evs = (res.scoreEvents || []).slice().sort((a, b) => a.t - b.t);
+  if (!evs.length) return null;
+  const ts = new Float64Array(evs.length), as = new Float64Array(evs.length), bs = new Float64Array(evs.length);
+  let A = 0, B = 0;
+  for (let i = 0; i < evs.length; i++) {
+    A += evs[i].base;
+    B += evs[i].base * evs[i].comboBefore;
+    ts[i] = evs[i].t; as[i] = A; bs[i] = B;
+  }
+  const C = B > 0 ? (finalScore - A) / B : 0;
+  let j = 0; // monotonic cursor — applyJudge samples in ascending time order
+  return (t) => {
+    while (j < ts.length && ts[j] <= t) j++;
+    const a = j > 0 ? as[j - 1] : 0, b = j > 0 ? bs[j - 1] : 0;
+    return Math.max(0, Math.round(a + C * b));
+  };
+}
+
 // Replace each ghost's approximated curve with a REAL one: replay the frames
 // against the beatmap to get true per-moment score/acc/combo, then rescale to
 // the exact final score. Final numbers stay exact; only the in-between shape
@@ -143,12 +173,16 @@ async function applyJudge(ghosts, osuPath, mode) {
       if (!frames.length) return;
       const res = J.judge(bm, frames, { ...modFlags(g), stepMs: config.simStepMs });
       if (!res.timeline.length || !(res.rawFinal > 0)) return;
-      const k = g.finalScore / res.rawFinal;       // pin the curve to the exact final score
       const last = res.timeline[res.timeline.length - 1];
-      const accShift = g.finalAcc - last.acc;       // and to the exact final accuracy
+      const accShift = g.finalAcc - last.acc;       // pin the curve to the exact final accuracy
+      // Per-sample score. Stable ('classic') ghosts get the exact ScoreV1 curve
+      // reconstructed from the combo-scaled hits (see classicScoreSampler); lazer
+      // ghosts rescale the standardised curve onto their exact header final.
+      const sampler = g.classic ? classicScoreSampler(res, g.finalScore) : null;
+      const k = sampler ? 0 : g.finalScore / res.rawFinal;
       g.timeline = res.timeline.map((p) => ({
         t: p.t,
-        score: Math.round(p.raw * k),
+        score: sampler ? sampler(p.t) : Math.round(p.raw * k),
         acc: Math.min(100, Math.max(0, +(p.acc + accShift).toFixed(2))),
         combo: p.combo,
         ratio: 0,
@@ -158,6 +192,32 @@ async function applyJudge(ghosts, osuPath, mode) {
       g.endTime = res.endTime;
     } catch { /* keep the approximated curve on any failure */ }
   }));
+}
+
+// Decide which install ('stable' | 'lazer') the app should serve replays from,
+// based on the osu! that's actually running. Prefer tosu's reported game
+// directory (authoritative), then fall back to the active beatmap's path.
+// Returns null when it can't tell OR when only one source is configured — in
+// both cases we fall back to serving every indexed replay (no filtering).
+function activeSourceType(gameDir, osuPath) {
+  if (config.sources.length < 2) return null; // nothing to disambiguate
+  const dir = (gameDir || '').trim();
+  if (dir) {
+    try {
+      if (fs.existsSync(path.join(dir, 'client.realm')) || fs.existsSync(path.join(dir, 'files'))) return 'lazer';
+      if (fs.existsSync(path.join(dir, 'Data', 'r'))) return 'stable';
+    } catch { /* fall through to the path heuristic */ }
+  }
+  if (osuPath) {
+    const p = osuPath.toLowerCase();
+    let best = null;
+    for (const s of config.sources) {
+      const root = String(s.root).toLowerCase();
+      if (p.startsWith(root) && (!best || s.root.length > best.len)) best = { type: s.type, len: s.root.length };
+    }
+    if (best) return best.type;
+  }
+  return null; // unknown -> don't filter
 }
 
 async function start({ onServersUp } = {}) {
@@ -206,6 +266,7 @@ async function start({ onServersUp } = {}) {
       mods: g.global ? g.mods : (g.modsDisplay || modString(g.mods)),
       rate: modSpeed(g.modsExact || g.mods), // speed multiplier (honours lazer custom rate)
       global: !!g.global,
+      classic: !!g.classic, // score is already ScoreV1 (stable) — overlay shows it as-is
       country: g.country || '',
       finalScore: g.finalScore,
       finalAcc: g.finalAcc,
@@ -237,7 +298,7 @@ async function start({ onServersUp } = {}) {
 
     if (!local) {
       if (config.watchReplays) { await index.build(); if (gen !== generation) return; }
-      const osrPaths = index.lookup(info.md5);
+      const osrPaths = index.lookup(info.md5, info.srcFilter);
       if (!info.osuPath) {
         log.warn('tosu did not provide a .osu path; cannot simulate.');
         beatmap = null; local = [];
@@ -254,10 +315,11 @@ async function start({ onServersUp } = {}) {
           log.ok(`Matched ${local.length} local replay(s).`);
         } else if (osrPaths.length) {
           // std/taiko/catch: no frame judge — use exact standardised header finals
-          // (lazer) with an approximated curve. Stable replays are skipped.
+          // (lazer) with an approximated curve; stable ghosts defer their score
+          // to the frame judge below (finalScore null until applyJudge runs).
           local = osrPaths.map((p) => buildHeaderGhost(p, beatmap, info.mode, config.simStepMs)).filter(Boolean);
           const skipped = osrPaths.length - local.length;
-          log.ok(`Built ${local.length} local ghost(s) from headers (mode ${info.mode})${skipped ? `, skipped ${skipped} non-standardised` : ''}.`);
+          log.ok(`Built ${local.length} local ghost(s) from headers (mode ${info.mode})${skipped ? `, skipped ${skipped} unreadable/zero-score` : ''}.`);
         } else {
           local = [];
           log.info(index.mapCount === 0 ? 'No replays indexed (check install paths / `npm run index`).' : 'No local replays for this map.');
@@ -332,10 +394,11 @@ async function start({ onServersUp } = {}) {
   async function refreshAfterPlay(attempt) {
     refreshTimer = null;
     if (!cache.info || !cache.md5) return;
-    const before = index.lookup(cache.md5).length;
+    const srcFilter = cache.info.srcFilter;
+    const before = index.lookup(cache.md5, srcFilter).length;
     try { await index.build(); }
     catch (e) { log.warn('post-play replay scan failed:', e.message); }
-    const after = index.lookup(cache.md5).length;
+    const after = index.lookup(cache.md5, srcFilter).length;
     if (after > before) {
       log.info(`New replay for current map (${before} → ${after}); refreshing board.`);
       // reuseLocal=false forces a fresh local simulation that includes the new
@@ -347,19 +410,68 @@ async function start({ onServersUp } = {}) {
     }
   }
 
-  tosu.on('beatmap', (info) => {
+  // The configured install paths are best-effort guesses at default locations.
+  // tosu, however, reports the directory of the osu! that's actually running —
+  // so if we're not already indexing it (e.g. stable installed somewhere other
+  // than %LOCALAPPDATA%\osu!), add it as a source and rescan. This is what makes
+  // "load the replays for the running install" work even for non-default setups.
+  async function ensureSourceForGameDir(gameDir) {
+    const dir = (gameDir || '').trim();
+    if (!dir) return false;
+    let norm;
+    try { norm = path.resolve(dir).toLowerCase(); } catch { return false; }
+    if (config.sources.some((s) => { try { return path.resolve(String(s.root)).toLowerCase() === norm; } catch { return false; } })) {
+      return false; // already indexing this install
+    }
+    try {
+      if (fs.existsSync(path.join(dir, 'Data', 'r'))) {
+        config.sources.push({ type: 'stable', root: dir, replayDir: path.join(dir, 'Data', 'r') });
+        log.ok(`Discovered running stable install via tosu: ${dir}`);
+      } else if (fs.existsSync(path.join(dir, 'client.realm')) || fs.existsSync(path.join(dir, 'files'))) {
+        config.sources.push({ type: 'lazer', root: dir, filesDir: path.join(dir, 'files') });
+        log.ok(`Discovered running lazer install via tosu: ${dir}`);
+      } else {
+        return false;
+      }
+    } catch { return false; }
+    config.sourceSummary = config.sources.map((s) => `${s.type} (${s.root})`).join(', ');
+    await index.build(); // scan the newly-added install so its replays are available
+    return true;
+  }
+
+  // Which install(s) to serve replays from for this map. Normally just the one
+  // that's running (so a stable player doesn't see lazer ghosts and vice versa);
+  // null when the overlay's "Load both stable + lazer replays" option is on.
+  function computeSrcFilter(info) {
+    if (relay.clientConfig.bothInstalls) return null;
+    return activeSourceType(info.gameDir, info.osuPath);
+  }
+
+  async function onBeatmap(info) {
     // Ignore a duplicate report of the map we're already on (tosu can re-emit) —
     // rebuilding here would clear the board and reset an in-progress play.
     if (info.md5 === cache.md5 && cache.local) return;
+    await ensureSourceForGameDir(info.gameDir); // learn the running install if new
+    info.srcFilter = computeSrcFilter(info);
+    const bd = index.breakdown(info.md5);
     log.info(`Map selected: ${info.title || '(unknown)'}  [id ${info.beatmapId}, md5 ${info.md5.slice(0, 8)}…]`);
+    log.info(`  replays for map: total ${bd.total} ${JSON.stringify(bd.by)} · running=${info.srcFilter || '(all)'} · gameDir="${info.gameDir || ''}"`);
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; } // drop a pending post-play refresh
     relay.clearGhosts(); // genuine map change -> reset the board
-    build(info, false).catch((e) => log.err('build error:', e.message));
-  });
+    await build(info, false);
+  }
 
-  // Overlay toggled an option (e.g. global) -> rebuild current map, reuse local.
+  tosu.on('beatmap', (info) => { onBeatmap(info).catch((e) => log.err('build error:', e.message)); });
+
+  // Overlay toggled an option (e.g. global) -> rebuild current map. Reuse the
+  // cached local ghosts UNLESS the replay-source filter changed (the "both
+  // installs" toggle), which needs a fresh local lookup + simulation.
   relay.on('clientConfig', () => {
-    if (cache.info) build(cache.info, true).catch((e) => log.err('rebuild error:', e.message));
+    if (!cache.info) return;
+    const next = computeSrcFilter(cache.info);
+    const filterChanged = next !== cache.info.srcFilter;
+    cache.info.srcFilter = next;
+    build(cache.info, !filterChanged).catch((e) => log.err('rebuild error:', e.message));
   });
 
   let prevGameState = null;

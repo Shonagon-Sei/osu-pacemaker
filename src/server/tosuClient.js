@@ -119,6 +119,10 @@ class TosuClient extends EventEmitter {
         beatmapId: beatmap.id || 0, // online beatmap id (for the global leaderboard)
         title: this._title(beatmap),
         mode: beatmap.mode ? beatmap.mode.number : 0,
+        // Install directory of the osu! that's actually running (tosu reports the
+        // connected client's own folders). Lets the app serve replays from the
+        // matching install instead of blending stable + lazer.
+        gameDir: (d.folders && d.folders.game) || '',
       });
     }
 

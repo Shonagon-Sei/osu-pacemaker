@@ -49,6 +49,7 @@
     includeGlobal: false,   // pull the beatmap's global top-N as ghosts
     globalCount: 50,        // how many global scores to include
     scoring: 'standardised', // standardised (ScoreV2) | classic (ScoreV1)
+    bothInstalls: false,    // load replays from BOTH stable + lazer (default: running install only)
     // colours
     colYou: '#ffcc22',
     colLeader: '#46e07a',
@@ -110,6 +111,7 @@
     { key: 'scoreMargin', label: 'Score swap margin', type: 'range', min: 0, max: 100000, step: 1, unit: 'pts' },
     { key: 'showLeader', label: 'Highlight #1 pace', type: 'bool' },
     { key: 'sameModsOnly', label: 'Only ghosts with my mods', type: 'bool' },
+    { key: 'bothInstalls', label: 'Load both stable + lazer replays', type: 'bool' },
     { key: 'includeGlobal', label: 'Include global top scores', type: 'bool' },
     { key: 'globalCount', label: 'Global count (max 100)', type: 'range', min: 1, max: 100, step: 1 },
     { key: 'scoring', label: 'Scoring', type: 'select', options: [['standardised', 'Standardised (V2)'], ['classic', 'Classic (V1)']] },
@@ -345,7 +347,12 @@
   // classic formula is non-linear, so this is applied PER FRAME to the running
   // score, not as a constant scale. Your live bar already comes from tosu in osu!'s
   // display scale, so it's left as-is — set the overlay's Scoring to match osu!.
-  function ghostDisplayScore(s) {
+  //
+  // Stable ghosts (g.classic) already carry their exact ScoreV1 total — the same
+  // scale as a stable player's live bar — so they're shown verbatim regardless of
+  // the Scoring setting; converting them would double-scale and mismatch.
+  function ghostDisplayScore(s, g) {
+    if (g && g.classic) return s;
     return settings.scoring === 'classic' ? classicDisplayScore(s, state.mode, state.objectCount) : s;
   }
 
@@ -442,7 +449,7 @@
       // standardised score, THEN convert the score to the display scale so ghosts
       // sit on the same scale as your live (tosu) bar.
       const pp = showMax ? (g.finalPp || 0) : ppAt(g, t, score);
-      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score: ghostDisplayScore(score), acc, combo, ratio, pp, isYou: false, global: g.global });
+      entries.push({ id: g.replayId, name: g.player, mods: g.mods, score: ghostDisplayScore(score, g), acc, combo, ratio, pp, isYou: false, global: g.global });
     }
 
     if (state.playing || state.finished) {
@@ -778,7 +785,7 @@
 
   function onSettingChanged(key) {
     if (key === 'sortBy') { state.order = []; state.lastSwap.clear(); }
-    if (key === 'includeGlobal' || key === 'globalCount' || key === 'scoring') sendConfig();
+    if (key === 'includeGlobal' || key === 'globalCount' || key === 'scoring' || key === 'bothInstalls') sendConfig();
     applySettings();
     saveSettings();
   }
@@ -787,7 +794,7 @@
   let socket = null;
   function sendConfig() {
     if (socket && socket.readyState === 1) {
-      socket.send(JSON.stringify({ type: 'config', includeGlobal: settings.includeGlobal, globalCount: settings.globalCount, scoring: settings.scoring }));
+      socket.send(JSON.stringify({ type: 'config', includeGlobal: settings.includeGlobal, globalCount: settings.globalCount, scoring: settings.scoring, bothInstalls: settings.bothInstalls }));
     }
   }
 

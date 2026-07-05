@@ -54,8 +54,23 @@ class ReplayIndex {
       if (!e.md5) continue;
       const key = String(e.md5).toLowerCase(); // match tosu checksum case-insensitively
       if (!this.byMd5.has(key)) this.byMd5.set(key, []);
-      this.byMd5.get(key).push({ path: e.p, player: e.player, mods: e.mods });
+      // Tag each replay with the install it came from so we can serve only the
+      // replays for whichever osu! (stable/lazer) is actually running.
+      this.byMd5.get(key).push({ path: e.p, player: e.player, mods: e.mods, src: this._classifySource(e.p) });
     }
+  }
+
+  // Which configured source a replay path belongs to ('stable' | 'lazer' | null).
+  // Longest-matching root wins so a lazer store nested under a shared parent
+  // still classifies correctly.
+  _classifySource(p) {
+    const lp = String(p).toLowerCase();
+    let best = null;
+    for (const s of this.config.sources) {
+      const root = String(s.root).toLowerCase();
+      if (lp.startsWith(root) && (!best || s.root.length > best.len)) best = { type: s.type, len: s.root.length };
+    }
+    return best ? best.type : null;
   }
 
   /**
@@ -168,15 +183,29 @@ class ReplayIndex {
     }
   }
 
-  /** Return absolute replay paths for a beatmap MD5 (case-insensitive). */
-  lookup(md5) {
+  /**
+   * Return absolute replay paths for a beatmap MD5 (case-insensitive).
+   * Pass `srcType` ('stable' | 'lazer') to restrict to one install; omit it to
+   * return replays from every indexed source.
+   */
+  lookup(md5, srcType) {
     if (!md5) return [];
-    return (this.byMd5.get(String(md5).toLowerCase()) || []).map((e) => e.path);
+    const arr = this.byMd5.get(String(md5).toLowerCase()) || [];
+    const filtered = srcType ? arr.filter((e) => e.src === srcType) : arr;
+    return filtered.map((e) => e.path);
   }
 
   lookupDetailed(md5) {
     if (!md5) return [];
     return this.byMd5.get(String(md5).toLowerCase()) || [];
+  }
+
+  /** Diagnostics: how many replays this md5 has, broken down by source install. */
+  breakdown(md5) {
+    const arr = this.byMd5.get(String(md5 || '').toLowerCase()) || [];
+    const by = {};
+    for (const e of arr) { const k = e.src || 'unknown'; by[k] = (by[k] || 0) + 1; }
+    return { total: arr.length, by };
   }
 
   get mapCount() {
