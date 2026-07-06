@@ -121,17 +121,24 @@ function computeScore({ baseScore, comboPortion, judged, totalHits, maxCombo }) 
   return Math.round(comboTerm + accTerm);
 }
 
-/** Displayed accuracy percentage (0..100) — lazer mania weighting (Perfect = 305/305). */
-function displayAccuracy(counts) {
+/**
+ * Displayed mania accuracy percentage (0..100).
+ *   lazer (default): Perfect(MAX) weighted 305/305, so an all-Great run is ~98.4%.
+ *   stable (classic=true): MAX and 300 BOTH count as 300/300, so an all-300 run
+ *     (any mix of MAX + 300) is a full 100% — matching what stable shows in-game.
+ */
+function displayAccuracy(counts, classic) {
   const total = counts.max + counts.n300 + counts.n200 + counts.n100 + counts.n50 + counts.miss;
   if (total === 0) return 100;
+  const maxWeight = classic ? 300 : BASE_VALUE.max; // stable: MAX == 300
+  const base = classic ? 300 : SCORE.MAX_BASE;      // stable denominator per note is 300
   const num =
-    BASE_VALUE.max * counts.max +
+    maxWeight * counts.max +
     BASE_VALUE.n300 * counts.n300 +
     BASE_VALUE.n200 * counts.n200 +
     BASE_VALUE.n100 * counts.n100 +
     BASE_VALUE.n50 * counts.n50;
-  return (num / (SCORE.MAX_BASE * total)) * 100;
+  return (num / (base * total)) * 100;
 }
 
 /**

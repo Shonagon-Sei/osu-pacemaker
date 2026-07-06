@@ -24,6 +24,26 @@ class ReplayIndex {
     this.byMd5 = new Map();    // md5(lowercase) -> [{ path, player, mods }]
     this.replayMeta = [];      // [{ p, md5, player, mods, mtimeMs, size }]
     this.lazerSeen = new Set(); // every lazer path examined (replay or not)
+    this._built = false;        // has a full scan run this session yet?
+    this.sourceSig = {};        // root -> cheap change signature (dir/realm mtime)
+  }
+
+  // A cheap "did anything change?" signature for a source, so repeat rebuilds can
+  // skip re-enumerating it. Stable: the replay dir's mtime (adding/removing a .osr
+  // bumps it). Lazer: client.realm's mtime (rewritten on every new score), falling
+  // back to the files-store dir. Returns null if it can't stat (-> always rescan).
+  _sourceSignature(src) {
+    try {
+      if (src.type === 'stable') return 's:' + fs.statSync(src.replayDir).mtimeMs;
+      const realm = path.join(src.root, 'client.realm');
+      if (fs.existsSync(realm)) return 'l:' + fs.statSync(realm).mtimeMs;
+      if (src.filesDir && fs.existsSync(src.filesDir)) return 'l:' + fs.statSync(src.filesDir).mtimeMs;
+    } catch { /* fall through */ }
+    return null;
+  }
+
+  _underRoot(p, root) {
+    return String(p).toLowerCase().startsWith(String(root).toLowerCase());
   }
 
   _loadCache() {
@@ -41,7 +61,7 @@ class ReplayIndex {
       fs.mkdirSync(this.config.cacheDir, { recursive: true });
       fs.writeFileSync(
         this.config.indexCacheFile,
-        JSON.stringify({ version: 4, replays: this.replayMeta, lazerSeen: [...this.lazerSeen] })
+        JSON.stringify({ version: 4, replays: this.replayMeta, lazerSeen: [...this.lazerSeen], sourceSig: this.sourceSig })
       );
     } catch (e) {
       log.warn('Could not write index cache:', e.message);
@@ -84,16 +104,36 @@ class ReplayIndex {
    * yield, not just a microtask). Without this the whole process — including the
    * Electron main process that owns the tray, global shortcuts and the overlay's
    * websocket — freezes solid until the scan finishes.
+   *
+   * Repeat rebuilds (every map change) are cheap: they reuse the IN-MEMORY index
+   * (no disk read/parse) and skip re-enumerating any source whose directory
+   * signature is unchanged. Pass `{ force: true }` to bypass the skip (used after
+   * a play, when we know a replay was just written).
    */
-  async build(onProgress) {
-    const cache = this._loadCache();
-    const cachedReplays = new Map();
-    if (cache) for (const r of cache.replays) cachedReplays.set(r.p, r);
-    const cachedSeen = new Set(cache ? cache.lazerSeen : []);
+  async build(onProgress, opts = {}) {
+    const force = !!opts.force;
+    const firstBuild = !this._built;
+
+    // Cold start: seed the reuse maps from the on-disk cache. Incremental rebuilds
+    // reuse the in-memory index instead — no disk read/parse on the hot path.
+    let cachedReplays, cachedSeen;
+    if (firstBuild) {
+      const cache = this._loadCache();
+      cachedReplays = new Map();
+      if (cache) for (const r of cache.replays) cachedReplays.set(r.p, r);
+      cachedSeen = new Set(cache ? cache.lazerSeen : []);
+      if (cache && cache.sourceSig) this.sourceSig = cache.sourceSig;
+    } else {
+      cachedReplays = new Map(this.replayMeta.map((r) => [r.p, r]));
+      cachedSeen = new Set(this.lazerSeen);
+    }
+    const prevSig = this.sourceSig || {};
+    const newSig = {};
 
     const replays = [];
     const lazerSeen = new Set();
-    const stats = { parsed: 0, reused: 0, sniffed: 0 };
+    const stats = { parsed: 0, reused: 0, sniffed: 0, skipped: 0 };
+    let changed = firstBuild;
 
     let processed = 0;
     const yieldMaybe = async () => {
@@ -105,6 +145,17 @@ class ReplayIndex {
     };
 
     for (const src of this.config.sources) {
+      const sig = this._sourceSignature(src);
+      newSig[src.root] = sig;
+      // Unchanged since last scan -> carry the cached entries over verbatim and
+      // skip the (potentially expensive) directory walk entirely.
+      if (!force && !firstBuild && sig != null && sig === prevSig[src.root]) {
+        for (const r of this.replayMeta) if (this._underRoot(r.p, src.root)) replays.push(r);
+        if (src.type === 'lazer') for (const p of this.lazerSeen) if (this._underRoot(p, src.root)) lazerSeen.add(p);
+        stats.skipped++;
+        continue;
+      }
+      changed = true;
       if (src.type === 'stable') {
         await this._buildStable(src, cachedReplays, replays, stats, yieldMaybe);
       } else if (src.type === 'lazer') {
@@ -114,13 +165,18 @@ class ReplayIndex {
 
     this.replayMeta = replays;
     this.lazerSeen = lazerSeen;
+    this.sourceSig = newSig;
     this._rebuildMd5Map();
-    this._saveCache();
+    this._built = true;
+    if (changed) this._saveCache(); // only touch disk when something actually changed
 
-    log.ok(
-      `Replay index: ${replays.length} replays across ${this.byMd5.size} maps ` +
-      `(parsed ${stats.parsed}, sniffed ${stats.sniffed}, cached ${stats.reused}).`
-    );
+    // Stay quiet on no-op rebuilds (every map change) to avoid log spam.
+    if (changed) {
+      log.ok(
+        `Replay index: ${replays.length} replays across ${this.byMd5.size} maps ` +
+        `(parsed ${stats.parsed}, sniffed ${stats.sniffed}, cached ${stats.reused}).`
+      );
+    }
   }
 
   // ── stable: Data\r\*.osr, cached by mtime+size ─────────────────────────────

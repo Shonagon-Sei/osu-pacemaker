@@ -396,7 +396,8 @@ async function start({ onServersUp } = {}) {
     if (!cache.info || !cache.md5) return;
     const srcFilter = cache.info.srcFilter;
     const before = index.lookup(cache.md5, srcFilter).length;
-    try { await index.build(); }
+    // force: a replay was just written; don't let the unchanged-dir fast path skip it.
+    try { await index.build(null, { force: true }); }
     catch (e) { log.warn('post-play replay scan failed:', e.message); }
     const after = index.lookup(cache.md5, srcFilter).length;
     if (after > before) {

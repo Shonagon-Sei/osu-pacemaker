@@ -645,6 +645,7 @@
   function frame() {
     overlayEl.classList.toggle('paused', state.playing && state.paused);
     render(windowEntries(applyOrder(collectEntries())));
+    updateScoreHint();
     updateBreakVisibility(playhead());
     syncWindowBounds(); // keep the locked OS window tight to the board
     requestAnimationFrame(frame);
@@ -660,6 +661,11 @@
     // are converted to the chosen Scoring scale, so set the overlay's Scoring to
     // match your lazer display and the two line up.
     state.you.score = live.score || 0;
+    // combo>0 means you've hit notes, which in osu! ALWAYS yields score>0. If tosu
+    // still reports 0, it isn't reading the gameplay score (osu! elevated but tosu
+    // not, or an outdated tosu after an osu! update) — flag it so we can say so
+    // instead of silently showing a stuck 0.
+    state.you.scoreStuck = (c || 0) > 0 && (live.score || 0) === 0;
     state.you.ratio = h.n300 > 0 ? h.geki / h.n300 : h.geki;
     state.you.acc = live.acc;
     state.you.pp = live.pp || 0;
@@ -674,7 +680,23 @@
   }
 
   function resetYou() {
-    Object.assign(state.you, { score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, prevCombo: 0, comboPortion: 0 });
+    Object.assign(state.you, { score: 0, acc: 100, pp: 0, combo: 0, maxCombo: 0, ratio: 0, prevCombo: 0, comboPortion: 0, scoreStuck: false });
+  }
+
+  // Surface a "tosu isn't reading your score" hint in the status line while it's
+  // happening, and restore the previous status text once it clears. combo>0 with
+  // score==0 is an unambiguous tosu read failure (see updateYouFromLive).
+  let stuckShown = false, savedStatus = '';
+  function updateScoreHint() {
+    const stuck = state.playing && !state.finished && !state.paused && state.you.scoreStuck;
+    if (stuck && !stuckShown) {
+      savedStatus = statusEl.textContent;
+      statusEl.textContent = '⚠ tosu is sending score 0 — run tosu as administrator or update it';
+      stuckShown = true;
+    } else if (!stuck && stuckShown) {
+      statusEl.textContent = savedStatus;
+      stuckShown = false;
+    }
   }
 
   // ── Messages ──────────────────────────────────────────────────────────────────

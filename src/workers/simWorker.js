@@ -23,13 +23,15 @@ parentPort.on('message', async (job) => {
   try {
     const replay = parseReplay(osrPath);
     const frames = await decodeFrames(replay.replayData, lzma);
-    const sim = simulate(frames, beatmap, replay.mods, stepMs);
+    // Stable replays use stable's mania accuracy weighting (MAX and 300 both count
+    // as 300 → an all-300 run is 100%); lazer weights MAX as 305.
+    const isLazer = replay.version >= LAZER_VERSION;
+    const sim = simulate(frames, beatmap, replay.mods, stepMs, !isLazer);
 
     // The replay header carries lazer's exact final score + judgement counts +
     // max combo. Trust those for the standings; the simulation only supplies the
     // in-between curve shape (lazer stores no time-series), scaled to hit the
     // exact final so the race ends on the real number.
-    const isLazer = replay.version >= LAZER_VERSION;
     let finalScore = sim.finalScore;
     let finalAcc = sim.finalAcc;
     let maxCombo = sim.maxCombo;
@@ -45,7 +47,7 @@ parentPort.on('message', async (job) => {
       // overlay show them verbatim, matching a stable player's live (ScoreV1) bar.
       finalScore = replay.stableScore;
       counts = replay.counts;
-      finalAcc = +displayAccuracy(replay.counts).toFixed(2);
+      finalAcc = +displayAccuracy(replay.counts, !isLazer).toFixed(2);
       maxCombo = replay.maxCombo;
       scoreScale = sim.finalScore > 0 ? finalScore / sim.finalScore : 1;
       isClassic = !isLazer;

@@ -108,7 +108,7 @@ function judgeColumns(notesByColumn, presses, releases, windows) {
  * @param {number} stepMs   timeline sample granularity
  * @returns timeline + final stats
  */
-function simulate(frames, beatmap, mods, stepMs) {
+function simulate(frames, beatmap, mods, stepMs, classic) {
   const rate = rateFromMods(mods);
   const od = effectiveOD(beatmap.overallDifficulty, mods);
   const windows = hitWindows(od);
@@ -172,7 +172,7 @@ function simulate(frames, beatmap, mods, stepMs) {
     timeline.push({
       t,
       score: computeScore({ baseScore, comboPortion, judged, totalHits, maxCombo }),
-      acc: judged > 0 ? +displayAccuracy(counts).toFixed(2) : 100,
+      acc: judged > 0 ? +displayAccuracy(counts, classic).toFixed(2) : 100,
       combo,
       // Running Perfect/Great counts. The worker rescales these to the EXACT final
       // counts (our judging mis-splits them) and derives the per-sample ratio, so
@@ -201,7 +201,7 @@ function simulate(frames, beatmap, mods, stepMs) {
     startTime: start,
     endTime: lastTime,
     finalScore,
-    finalAcc: +displayAccuracy(counts).toFixed(2),
+    finalAcc: +displayAccuracy(counts, classic).toFixed(2),
     maxCombo: bestCombo,
     counts,
   };
