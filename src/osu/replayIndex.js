@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { sniffHeader } = require('./osrParser');
+const { sniffHeader, sniffHeaderAsync } = require('./osrParser');
 const log = require('../util/logger');
 
 /**
@@ -133,7 +133,7 @@ class ReplayIndex {
     const replays = [];
     const lazerSeen = new Set();
     const stats = { parsed: 0, reused: 0, sniffed: 0, skipped: 0 };
-    let changed = firstBuild;
+    let changed = false;
 
     let processed = 0;
     const yieldMaybe = async () => {
@@ -147,11 +147,14 @@ class ReplayIndex {
     for (const src of this.config.sources) {
       const sig = this._sourceSignature(src);
       newSig[src.root] = sig;
-      // Unchanged since last scan -> carry the cached entries over verbatim and
-      // skip the (potentially expensive) directory walk entirely.
-      if (!force && !firstBuild && sig != null && sig === prevSig[src.root]) {
-        for (const r of this.replayMeta) if (this._underRoot(r.p, src.root)) replays.push(r);
-        if (src.type === 'lazer') for (const p of this.lazerSeen) if (this._underRoot(p, src.root)) lazerSeen.add(p);
+      // Unchanged since the last scan -> carry the cached entries over verbatim and
+      // skip the (potentially very expensive) directory walk. This applies on the
+      // FIRST build of a session too, so a cold start whose lazer store hasn't
+      // changed since last run doesn't re-sniff tens of thousands of blobs — the
+      // difference between a ~2-3 min launch and an instant one.
+      if (!force && sig != null && sig === prevSig[src.root]) {
+        for (const r of cachedReplays.values()) if (this._underRoot(r.p, src.root)) replays.push(r);
+        if (src.type === 'lazer') for (const p of cachedSeen) if (this._underRoot(p, src.root)) lazerSeen.add(p);
         stats.skipped++;
         continue;
       }
@@ -170,12 +173,14 @@ class ReplayIndex {
     this._built = true;
     if (changed) this._saveCache(); // only touch disk when something actually changed
 
-    // Stay quiet on no-op rebuilds (every map change) to avoid log spam.
     if (changed) {
       log.ok(
         `Replay index: ${replays.length} replays across ${this.byMd5.size} maps ` +
         `(parsed ${stats.parsed}, sniffed ${stats.sniffed}, cached ${stats.reused}).`
       );
+    } else if (firstBuild) {
+      // Cold start with nothing changed since last run — served entirely from cache.
+      log.ok(`Replay index: ${replays.length} replays across ${this.byMd5.size} maps (loaded from cache, sources unchanged).`);
     }
   }
 
@@ -215,27 +220,42 @@ class ReplayIndex {
       return;
     }
 
-    let scanned = 0;
+    const t0 = Date.now();
+    // First pass: enumerate the store. Reuse known replays, skip known non-replays,
+    // and collect only the blobs we've never seen — those are all we must open.
+    const toSniff = [];
     for await (const full of walk(dir)) {
       await yieldMaybe();
       seenOut.add(full);
-
       const cached = cachedReplays.get(full);
-      if (cached) {                       // known replay (immutable -> trust it)
-        out.push(cached);
-        stats.reused++;
-        continue;
-      }
-      if (cachedSeen.has(full)) continue; // known non-replay -> skip the sniff
+      if (cached) { out.push(cached); stats.reused++; continue; } // immutable -> trust it
+      if (cachedSeen.has(full)) continue;                          // known non-replay
+      toSniff.push(full);
+    }
+    const tWalk = Date.now();
 
-      const h = sniffHeader(full);
-      stats.sniffed++;
-      if (h) {
-        out.push({ p: full, md5: h.beatmapMD5, player: h.player, mods: h.mods, mode: h.mode, mtimeMs: 0, size: 0 });
-        stats.parsed++;
+    // Second pass: sniff the unseen blobs CONCURRENTLY. Each open can stall (disk,
+    // and especially Windows Defender scanning the file), so overlapping many at
+    // once turns a long sequential wait into roughly (count / concurrency) — the
+    // difference between a multi-minute launch and a few seconds.
+    const CONC = 32;
+    let idx = 0;
+    const worker = async () => {
+      while (idx < toSniff.length) {
+        const full = toSniff[idx++];
+        const h = await sniffHeaderAsync(full);
+        stats.sniffed++;
+        if (h) {
+          out.push({ p: full, md5: h.beatmapMD5, player: h.player, mods: h.mods, mode: h.mode, mtimeMs: 0, size: 0 });
+          stats.parsed++;
+        }
+        if ((stats.sniffed & 0x3ff) === 0) await yieldMaybe();
       }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONC, toSniff.length) }, worker));
 
-      if (++scanned % 20000 === 0) log.info(`  …lazer store: sniffed ${scanned} blobs`);
+    if (toSniff.length > 2000 || (Date.now() - t0) > 1500) {
+      log.info(`  lazer store: walked in ${tWalk - t0}ms, sniffed ${toSniff.length} new blob(s) in ${Date.now() - tWalk}ms (${CONC}-way).`);
     }
   }
 

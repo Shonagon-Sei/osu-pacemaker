@@ -1,5 +1,10 @@
 'use strict';
 
+// Widen libuv's thread pool (default 4) BEFORE any async fs runs, so the replay
+// index can sniff many lazer blobs concurrently — the store scan is I/O-bound and
+// each file open can stall on antivirus. Must be set before the first async fs op.
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '32';
+
 /**
  * osu! Pacemaker — packaged desktop app entry point.
  *

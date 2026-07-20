@@ -62,35 +62,59 @@ function parseHeader(filePath) {
  * Fast-rejects on the very first byte (a valid game mode is 0-3) so the ~98% of
  * store files that aren't replays cost almost nothing.
  */
+// Parse an already-read header buffer into a replay descriptor, or null. Shared
+// by the sync and async sniffers so both stay in lockstep.
+function _parseSniffBuffer(buf, read) {
+  if (read < 16) return null;
+  if (buf.readUInt8(0) > 3) return null; // not a valid game mode -> not a replay
+
+  const r = new BinaryReader(buf.subarray(0, read));
+  const mode = r.byte();
+  const version = r.int();
+  if (version < 0 || version > 99999999) return null;
+  const beatmapMD5 = r.string();
+  if (!/^[0-9a-fA-F]{32}$/.test(beatmapMD5)) return null; // the clincher: a real MD5
+
+  const player = r.string();
+  const replayMD5 = r.string();
+  r.short(); r.short(); r.short(); r.short(); r.short(); r.short(); // counts
+  r.int();   // score
+  r.short(); // max combo
+  r.byte();  // perfect
+  const mods = r.int();
+
+  return { mode, version, beatmapMD5, player, replayMD5, mods };
+}
+
 function sniffHeader(filePath) {
   let fd;
   try {
     fd = fs.openSync(filePath, 'r');
     const buf = Buffer.alloc(4096);
     const read = fs.readSync(fd, buf, 0, 4096, 0);
-    if (read < 16) return null;
-    if (buf.readUInt8(0) > 3) return null; // not a valid game mode -> not a replay
-
-    const r = new BinaryReader(buf.subarray(0, read));
-    const mode = r.byte();
-    const version = r.int();
-    if (version < 0 || version > 99999999) return null;
-    const beatmapMD5 = r.string();
-    if (!/^[0-9a-fA-F]{32}$/.test(beatmapMD5)) return null; // the clincher: a real MD5
-
-    const player = r.string();
-    const replayMD5 = r.string();
-    r.short(); r.short(); r.short(); r.short(); r.short(); r.short(); // counts
-    r.int();   // score
-    r.short(); // max combo
-    r.byte();  // perfect
-    const mods = r.int();
-
-    return { mode, version, beatmapMD5, player, replayMD5, mods };
+    return _parseSniffBuffer(buf, read);
   } catch {
     return null; // malformed string flag / truncated => not a replay
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+// Async sniff — same result as sniffHeader, but the open/read run on libuv's
+// thread pool. Sniffing thousands of lazer blobs sequentially is slow because
+// each open blocks (worse under Windows AV); running many concurrently overlaps
+// that latency. See _buildLazer.
+async function sniffHeaderAsync(filePath) {
+  let fh;
+  try {
+    fh = await fs.promises.open(filePath, 'r');
+    const buf = Buffer.alloc(4096);
+    const { bytesRead } = await fh.read(buf, 0, 4096, 0);
+    return _parseSniffBuffer(buf, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    if (fh) await fh.close().catch(() => {});
   }
 }
 
@@ -255,4 +279,4 @@ function decodeCursorFrames(replayData, lzma) {
   });
 }
 
-module.exports = { GAMEMODE, parseHeader, sniffHeader, parseReplay, decodeFrames, decodeCursorFrames, readSoloStats };
+module.exports = { GAMEMODE, parseHeader, sniffHeader, sniffHeaderAsync, parseReplay, decodeFrames, decodeCursorFrames, readSoloStats };

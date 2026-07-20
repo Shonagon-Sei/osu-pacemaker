@@ -1,5 +1,9 @@
 'use strict';
 
+// Widen libuv's thread pool (default 4) before any async fs, so the lazer store
+// scan can sniff many blobs concurrently. Harmless if already set (e.g. Electron).
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '32';
+
 const path = require('path');
 const fs = require('fs');
 const { config, validate } = require('../config');
