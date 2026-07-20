@@ -21,19 +21,21 @@ function diffRange(od, v0, v5, v10) {
 
 function judge(bm, frames, opts = {}) {
   const stepMs = opts.stepMs || 100;
+  const rate = opts.rate || 1;
   const od = Math.max(0, Math.min(10, opts.hardRock ? bm.od * 1.4 : opts.easy ? bm.od * 0.5 : bm.od));
   const great = diffRange(od, 50, 35, 20);
   const good = diffRange(od, 120, 80, 50);
 
-  // Fresh keypresses, tagged with which colours they can satisfy. Replay frame
-  // times are already in map-time (verified: DT/NC plays match with no rate
-  // scaling), so we compare directly against note times.
+  // Fresh keypresses, tagged with which colours they can satisfy. Replay frames
+  // are recorded in REAL time; multiply by the play's rate to get SONG time so
+  // DT/HT plays line up with the note times (otherwise the ghost finishes early
+  // and freezes at its final).
   const MASK = 15;
   const presses = [];
   for (let i = 0; i < frames.length; i++) {
     const prev = i ? frames[i - 1].k : 0;
     const nb = (frames[i].k & MASK) & ~(prev & MASK);
-    if (nb) presses.push({ t: frames[i].t, don: (nb & DON) !== 0, kat: (nb & KAT) !== 0, used: false });
+    if (nb) presses.push({ t: frames[i].t * rate, don: (nb & DON) !== 0, kat: (nb & KAT) !== 0, used: false });
   }
 
   let base = 0;

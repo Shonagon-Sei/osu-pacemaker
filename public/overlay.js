@@ -332,7 +332,10 @@
   //  • NM, CL, AT, MR, MU, AC, SD, PF always ignored — they don't change the challenge
   //  • in mania, HD, FI, CO, FL are cosmetic too, so ignore those there as well
   //  • speed mods carry the rate, so a custom DT/HT speed only matches the same speed
-  const MODS_IGNORED = new Set(['NM', 'CL', 'AT', 'MR', 'MU', 'AC', 'SD', 'PF']);
+  // V2 = the stable ScoreV2 mod: it only changes scoring, not gameplay, and the
+  // ghost side never carries it (modString drops it), so it must be ignored here
+  // too — otherwise a ScoreV2 play's live mods ("…V2") never match its own ghosts.
+  const MODS_IGNORED = new Set(['NM', 'CL', 'AT', 'MR', 'MU', 'AC', 'SD', 'PF', 'V2', 'SV']);
   const MODS_IGNORED_MANIA = new Set(['HD', 'FI', 'CO', 'FL']);
   function modKey(modsStr, rate, mode) {
     const maniaIgnore = mode === 3;

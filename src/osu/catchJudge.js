@@ -19,16 +19,18 @@ const ALLOWED_CATCH_RANGE = 0.8;
 
 function judge(bm, frames, opts = {}) {
   const stepMs = opts.stepMs || 100;
+  const rate = opts.rate || 1;
   // Catch does NOT resize the catcher for HardRock (verified: HR plays mis-miss
   // fruits otherwise). EasyMod enlarges it (CS halved).
   const cs = Math.max(0, Math.min(10, opts.easy ? bm.cs * 0.5 : bm.cs));
   const scale = 1 - 0.7 * (cs - 5) / 5;
   const halfWidth = (CATCHER_BASE * Math.abs(scale) * ALLOWED_CATCH_RANGE) / 2;
 
-  // Catcher X over time (map-time frames, used directly — see taiko/std).
+  // Catcher X over time. Replay frames are in REAL time; ×rate gives SONG time so
+  // DT/HT plays line up with the object times (else the ghost freezes early).
   const n = frames.length;
   const ft = new Float64Array(n), fx = new Float64Array(n);
-  for (let i = 0; i < n; i++) { ft[i] = frames[i].t; fx[i] = frames[i].x; }
+  for (let i = 0; i < n; i++) { ft[i] = frames[i].t * rate; fx[i] = frames[i].x; }
   let fi = 0;
   function catcherAt(t) {
     if (n === 0) return 256;

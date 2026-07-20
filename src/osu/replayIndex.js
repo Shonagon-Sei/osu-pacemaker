@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { sniffHeader, sniffHeaderAsync } = require('./osrParser');
+const { sniffHeaderAsync } = require('./osrParser');
 const log = require('../util/logger');
 
 /**
@@ -190,26 +190,43 @@ class ReplayIndex {
     if (!fs.existsSync(dir)) return;
 
     const names = (await fs.promises.readdir(dir)).filter((f) => f.toLowerCase().endsWith('.osr'));
+
+    // First pass: stat each file (cheap, no content read) and reuse the ones whose
+    // mtime+size are unchanged. Only the rest need their headers read.
+    const toSniff = [];
     for (const name of names) {
       await yieldMaybe();
       const full = path.join(dir, name);
       let st;
       try { st = await fs.promises.stat(full); } catch { continue; }
-
       const cached = cachedReplays.get(full);
       if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
         out.push(cached);
         stats.reused++;
         continue;
       }
-
-      const h = sniffHeader(full);
-      stats.sniffed++;
-      if (h) { // index all rulesets; the active beatmap's mode selects which apply
-        out.push({ p: full, md5: h.beatmapMD5, player: h.player, mods: h.mods, mode: h.mode, mtimeMs: st.mtimeMs, size: st.size });
-        stats.parsed++;
-      }
+      toSniff.push({ full, mtimeMs: st.mtimeMs, size: st.size });
     }
+
+    // Second pass: read the uncached headers CONCURRENTLY. On a cold cache these
+    // are thousands of blocking opens (each can stall on Windows Defender), so
+    // overlapping them turns a multi-minute scan into a few seconds — the same
+    // fix already applied to the lazer store.
+    const CONC = 32;
+    let idx = 0;
+    const worker = async () => {
+      while (idx < toSniff.length) {
+        const { full, mtimeMs, size } = toSniff[idx++];
+        const h = await sniffHeaderAsync(full);
+        stats.sniffed++;
+        if (h) { // index all rulesets; the active beatmap's mode selects which apply
+          out.push({ p: full, md5: h.beatmapMD5, player: h.player, mods: h.mods, mode: h.mode, mtimeMs, size });
+          stats.parsed++;
+        }
+        if ((stats.sniffed & 0x3ff) === 0) await yieldMaybe();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONC, toSniff.length) }, worker));
   }
 
   // ── lazer: walk files\ store, sniff unknown blobs ──────────────────────────

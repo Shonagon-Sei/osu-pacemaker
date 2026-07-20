@@ -22,6 +22,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function judge(bm, frames, opts = {}) {
   const hr = !!opts.hardRock, ez = !!opts.easy;
   const stepMs = opts.stepMs || 100;
+  const rate = opts.rate || 1;
 
   const od = clamp(hr ? bm.od * 1.4 : ez ? bm.od * 0.5 : bm.od, 0, 10);
   const cs = clamp(hr ? bm.cs * 1.3 : ez ? bm.cs * 0.5 : bm.cs, 0, 10);
@@ -29,12 +30,14 @@ function judge(bm, frames, opts = {}) {
   const followR = radius * 2.4;
   const w300 = 80 - 6 * od, w100 = 140 - 8 * od, w50 = 200 - 10 * od;
 
-  // Replay frame times are already in map-time (DT/HT plays match with no rate
-  // scaling), so we use them directly. HardRock mirrors the playfield vertically.
+  // Replay frames are recorded in REAL time; multiply by the play's rate to get
+  // SONG time so DT/HT plays line up with the map's (song-time) objects. Without
+  // this a DT ghost's curve finishes early and then freezes at its final score.
+  // HardRock mirrors the playfield vertically.
   const n = frames.length;
   const ft = new Float64Array(n), fx = new Float64Array(n), fy = new Float64Array(n), fk = new Int32Array(n);
   for (let i = 0; i < n; i++) {
-    ft[i] = frames[i].t;
+    ft[i] = frames[i].t * rate;
     fx[i] = frames[i].x;
     fy[i] = hr ? 384 - frames[i].y : frames[i].y;
     fk[i] = frames[i].k;

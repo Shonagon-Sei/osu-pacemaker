@@ -175,7 +175,11 @@ async function applyJudge(ghosts, osuPath, mode) {
       const rep = parseReplay(g.replayId); // replayId is the .osr path
       const frames = await decodeCursorFrames(rep.replayData, lzma);
       if (!frames.length) return;
-      const res = J.judge(bm, frames, { ...modFlags(g), stepMs: config.simStepMs });
+      // rate converts the replay's real-time frames to song time so DT/HT plays
+      // line up with the map's (song-time) objects — same convention as the mania
+      // simulator. Prefer the exact lazer rate; fall back to the DT/HT flag.
+      const rate = modSpeed(g.modsExact || g.mods) || modFlags(g).rate || 1;
+      const res = J.judge(bm, frames, { ...modFlags(g), rate, stepMs: config.simStepMs });
       if (!res.timeline.length || !(res.rawFinal > 0)) return;
       const last = res.timeline[res.timeline.length - 1];
       const accShift = g.finalAcc - last.acc;       // pin the curve to the exact final accuracy
