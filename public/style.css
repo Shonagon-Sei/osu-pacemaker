@@ -286,6 +286,20 @@ html, body {
   text-shadow: var(--shadow);
   min-height: 14px;
 }
+/* Sticky diagnostic banner (backend warnings, e.g. cache not writable). */
+#warn {
+  margin: 6px 0 2px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #ffdf9a;
+  background: rgba(120, 72, 0, 0.55);
+  border: 1px solid rgba(255, 190, 80, 0.55);
+  border-radius: 6px;
+  text-shadow: var(--shadow);
+}
+#warn[hidden] { display: none; }
 #status .progress {
   display: inline-block;
   height: 4px;

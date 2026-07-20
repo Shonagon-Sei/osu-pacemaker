@@ -76,7 +76,11 @@ const config = {
   },
   globalCount: int(process.env.OSU_GLOBAL_COUNT, 50),
 
-  cacheDir: path.join(__dirname, '..', '.cache'),
+  // Keep the index cache in a per-user writable location, NOT next to the app.
+  // A packaged install can land in a read-only folder (e.g. Program Files), where
+  // writing beside the exe fails silently and the whole replay store is re-scanned
+  // on every launch. %LOCALAPPDATA% is always writable. Override with CACHE_DIR.
+  cacheDir: (process.env.CACHE_DIR || path.join(LOCALAPPDATA, 'osu-pacemaker', 'cache')).trim(),
 };
 
 config.indexCacheFile = path.join(config.cacheDir, 'replay-index.json');

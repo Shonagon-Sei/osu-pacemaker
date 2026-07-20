@@ -24,6 +24,7 @@ class RelayServer extends EventEmitter {
     this.wss = null;
     this.lastGhosts = null;
     this.lastStatus = { type: 'status', phase: 'idle' };
+    this.lastWarn = null; // sticky diagnostic banner (e.g. cache not writable)
     // Latest overlay preferences that affect what the backend produces.
     this.clientConfig = { includeGlobal: false, globalCount: 50, scoring: 'standardised', bothInstalls: false };
   }
@@ -34,6 +35,7 @@ class RelayServer extends EventEmitter {
       log.info('Overlay connected.');
       ws.send(JSON.stringify(this.lastStatus));
       if (this.lastGhosts) ws.send(JSON.stringify(this.lastGhosts));
+      if (this.lastWarn) ws.send(JSON.stringify(this.lastWarn)); // replay any active warning
       ws.on('message', (buf) => this._onClientMessage(buf));
     });
     this.wss.on('error', (e) => log.err('Relay server error:', e.message));
@@ -71,6 +73,13 @@ class RelayServer extends EventEmitter {
   sendStatus(status) {
     this.lastStatus = { type: 'status', ...status };
     this._broadcast(this.lastStatus);
+  }
+
+  // Sticky warning banner shown in the overlay. Pass '' (or nothing) to clear it.
+  // Re-sent to any overlay that connects later, so a warning isn't missed on reload.
+  sendWarn(text) {
+    this.lastWarn = text ? { type: 'warn', text: String(text) } : null;
+    this._broadcast({ type: 'warn', text: text ? String(text) : '' });
   }
 
   sendGhosts(payload) {

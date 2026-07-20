@@ -318,6 +318,7 @@
   const titleEl = document.getElementById('map-title');
   const connEl = document.getElementById('conn');
   const statusEl = document.getElementById('status');
+  const warnEl = document.getElementById('warn');
   const headerEl = document.getElementById('header');
   const resizeHandle = document.getElementById('resize-handle');
   const template = document.getElementById('bar-template');
@@ -726,6 +727,10 @@
         break;
       case 'status':
         handleStatus(msg);
+        break;
+      case 'warn':
+        if (msg.text) { warnEl.textContent = `⚠ ${msg.text}`; warnEl.hidden = false; }
+        else { warnEl.hidden = true; warnEl.textContent = ''; }
         break;
     }
   }

@@ -26,6 +26,7 @@ class ReplayIndex {
     this.lazerSeen = new Set(); // every lazer path examined (replay or not)
     this._built = false;        // has a full scan run this session yet?
     this.sourceSig = {};        // root -> cheap change signature (dir/realm mtime)
+    this.cacheError = null;     // message if the last cache write failed (read-only dir?)
   }
 
   // A cheap "did anything change?" signature for a source, so repeat rebuilds can
@@ -63,7 +64,9 @@ class ReplayIndex {
         this.config.indexCacheFile,
         JSON.stringify({ version: 4, replays: this.replayMeta, lazerSeen: [...this.lazerSeen], sourceSig: this.sourceSig })
       );
+      this.cacheError = null;
     } catch (e) {
+      this.cacheError = e.message; // surfaced to the overlay so the user can see it
       log.warn('Could not write index cache:', e.message);
     }
   }

@@ -260,6 +260,12 @@ async function start({ onServersUp } = {}) {
   // yields inside build(), the app stays interactive while it runs).
   await index.build((n) =>
     relay.sendStatus({ phase: 'init', note: `Scanning replays… (${n.toLocaleString()} files)` }));
+  // If the cache couldn't be written, every launch will re-scan from scratch —
+  // surface it in the overlay so the user knows why boots are slow (usually the
+  // app is installed in a read-only folder). Cleared automatically once it saves.
+  relay.sendWarn(index.cacheError
+    ? 'Couldn’t save the replay cache — every launch will re-scan (is the app in a read-only folder?).'
+    : '');
   // tosu hasn't connected yet — assume it's not running until proven otherwise.
   relay.sendStatus({ phase: 'init', note: 'Waiting for tosu…' });
 
