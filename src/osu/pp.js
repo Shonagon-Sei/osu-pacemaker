@@ -181,8 +181,21 @@ function attachPp(ghosts, calc, objectTimes) {
     // Align the in-race accuracy curve so it lands on the (osu-accurate) final.
     const at = g.timeline;
     if (at && at.length) {
-      const delta = g.finalAcc - at[at.length - 1].acc;
-      if (Math.abs(delta) > 0.001) for (const p of at) p.acc = Math.min(100, Math.max(0, +(p.acc + delta).toFixed(2)));
+      const lastAcc = at[at.length - 1].acc;
+      if (g.finalAcc >= lastAcc + 0.001) {
+        // Curve must move UP toward the final. A uniform additive shift would push
+        // already-high samples past 100% and CLAMP them to a flat 100% — a visible
+        // "jumps to 100% and freezes" artifact (worst in mania, whose simulated
+        // final can diverge from the header). Scale the gap-below-100 instead: a
+        // genuine 100% stays 100%, dips shrink proportionally, endpoint hits final.
+        const gapLast = 100 - lastAcc;
+        const k = gapLast > 0.001 ? (100 - g.finalAcc) / gapLast : 1;
+        for (const p of at) p.acc = Math.min(100, Math.max(0, +(100 - (100 - p.acc) * k).toFixed(2)));
+      } else if (lastAcc - g.finalAcc > 0.001) {
+        // Curve must move DOWN; a uniform shift is fine here (never clamps at 100%).
+        const delta = g.finalAcc - lastAcc;
+        for (const p of at) p.acc = Math.min(100, Math.max(0, +(p.acc + delta).toFixed(2)));
+      }
     }
     g.ppTimeline = calc.timeline(play, objectTimes);
     // The gradual curve gives the right SHAPE but its absolute scale can be off:
